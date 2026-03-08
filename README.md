@@ -7,6 +7,8 @@ REST API and real-time SSE for [glide-mq](https://github.com/avifenesh/glide-mq)
 
 Turns a Hapi v21 server into a queue management gateway. Built for teams that run Hapi in production and need to expose queue operations to dashboards, CLI tools, or other services.
 
+> If glide-mq is useful to you, consider [giving it a star](https://github.com/avifenesh/glide-mq). It helps others discover the project.
+
 ## Why @glidemq/hapi
 
 - Use this when you need HTTP endpoints to manage glide-mq queues without writing route handlers yourself.
