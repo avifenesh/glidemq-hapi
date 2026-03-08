@@ -24,6 +24,8 @@ npm install @glidemq/hapi glide-mq @hapi/hapi
 
 Optional: `npm install zod`
 
+Requires **glide-mq 0.9+**.
+
 ## Quick start
 
 ```ts
