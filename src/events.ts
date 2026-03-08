@@ -27,21 +27,31 @@ function writeSSE(stream: PassThrough, event: string, data: string, id: string):
 function cancellableSleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     if (signal.aborted) return resolve();
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(timer);
-        resolve();
-      },
-      { once: true },
-    );
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      clearTimeout(timer);
+      resolve();
+    }
+    signal.addEventListener('abort', onAbort, { once: true });
   });
 }
 
-const subscriptions = new Map<string, EventSubscription>();
+function getSubscriptions(server: Server): Map<string, EventSubscription> {
+  if (!(server.app as any).__glidemq_subscriptions) {
+    (server.app as any).__glidemq_subscriptions = new Map<string, EventSubscription>();
+  }
+  return (server.app as any).__glidemq_subscriptions;
+}
 
-function acquireQueueEvents(name: string, connectionOpts: any, prefix?: string): any {
+function acquireQueueEvents(
+  subscriptions: Map<string, EventSubscription>,
+  name: string,
+  connectionOpts: any,
+  prefix?: string,
+): any {
   const existing = subscriptions.get(name);
   if (existing) {
     existing.refCount++;
@@ -61,7 +71,7 @@ function acquireQueueEvents(name: string, connectionOpts: any, prefix?: string):
   return queueEvents;
 }
 
-function releaseQueueEvents(name: string): void {
+function releaseQueueEvents(subscriptions: Map<string, EventSubscription>, name: string): void {
   const sub = subscriptions.get(name);
   if (!sub) return;
   sub.refCount--;
@@ -71,7 +81,7 @@ function releaseQueueEvents(name: string): void {
   }
 }
 
-export function closeAllSubscriptions(): Promise<void> {
+function closeAllSubscriptions(subscriptions: Map<string, EventSubscription>): Promise<void> {
   const closes: Promise<void>[] = [];
   for (const sub of subscriptions.values()) {
     closes.push(sub.queueEvents.close().catch(() => {}));
@@ -85,7 +95,7 @@ export function createEventsHandler(server: Server) {
   server.ext({
     type: 'onPostStop',
     method: async () => {
-      await closeAllSubscriptions();
+      await closeAllSubscriptions(getSubscriptions(server));
     },
   });
 
@@ -98,16 +108,19 @@ export function createEventsHandler(server: Server) {
     const response = h
       .response(stream)
       .type('text/event-stream')
-      .header('Cache-Control', 'no-cache')
-      .header('Connection', 'keep-alive');
+      .header('Cache-Control', 'no-cache');
 
     stream.write(':ok\n\n');
 
-    if (registry.testing) {
-      handleTestingSSE(request, stream, registry, name);
-    } else {
-      handleLiveSSE(request, stream, registry, name);
-    }
+    const handler = registry.testing
+      ? handleTestingSSE(request, stream, registry, name)
+      : handleLiveSSE(request, stream, request.server, registry, name);
+
+    handler.catch(() => {
+      if (!stream.writableEnded) {
+        stream.end();
+      }
+    });
 
     return response;
   };
@@ -116,6 +129,7 @@ export function createEventsHandler(server: Server) {
 async function handleLiveSSE(
   request: Request,
   stream: PassThrough,
+  server: Server,
   registry: QueueRegistry,
   name: string,
 ): Promise<void> {
@@ -128,7 +142,8 @@ async function handleLiveSSE(
     return;
   }
 
-  const queueEvents = acquireQueueEvents(name, connection, prefix);
+  const subscriptions = getSubscriptions(server);
+  const queueEvents = acquireQueueEvents(subscriptions, name, connection, prefix);
   let eventId = 0;
   let running = true;
   const ac = new AbortController();
@@ -161,7 +176,7 @@ async function handleLiveSSE(
     for (const { event, handler } of listeners) {
       queueEvents.removeListener(event, handler);
     }
-    releaseQueueEvents(name);
+    releaseQueueEvents(subscriptions, name);
     if (!stream.writableEnded) {
       stream.end();
     }

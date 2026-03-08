@@ -15,6 +15,10 @@ const ALLOWED_OPTS = [
   'jobId', 'lifo', 'deduplication', 'ordering', 'cost', 'backoff', 'parent', 'ttl',
 ];
 
+const PRODUCER_ALLOWED_OPTS = [
+  'delay', 'priority', 'attempts', 'timeout', 'removeOnComplete', 'removeOnFail',
+];
+
 function pickOpts(rawOpts: Record<string, unknown>): Record<string, unknown> {
   const safeOpts: Record<string, unknown> = {};
   for (const key of ALLOWED_OPTS) {
@@ -37,8 +41,17 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
       return request.server.glidemq;
     }
 
-    // Queue name validation + access control
+    // Builds the set of route paths registered by this plugin for scoping extensions
+    const glidemqPaths = new Set<string>();
+
+    function isGlideMQRoute(request: Request): boolean {
+      return glidemqPaths.has(request.route.path);
+    }
+
+    // Queue name validation + access control (scoped to glidemq routes only)
     server.ext('onPreHandler', async (request, h) => {
+      if (!isGlideMQRoute(request)) return h.continue;
+
       const name = (request.params as any)?.name;
       if (!name) return h.continue;
 
@@ -47,7 +60,7 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
       }
 
       // Allow produce endpoint to pass through for producer-only names
-      if (request.path.endsWith('/produce')) {
+      if (request.route.path === `${pfx}/{name}/produce`) {
         const registry = getRegistry(request);
         if ((allowedProducers && !allowedProducers.includes(name)) || !registry.hasProducer(name)) {
           return h.response({ error: 'Producer not found or not accessible' }).code(404).takeover();
@@ -63,8 +76,10 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
       return h.continue;
     });
 
-    // Error handler
+    // Error handler (scoped to glidemq routes only)
     server.ext('onPreResponse', (request, h) => {
+      if (!isGlideMQRoute(request)) return h.continue;
+
       const response = request.response;
       if (response instanceof Error && !('isBoom' in response && (response as any).isBoom)) {
         server.log(['error'], response);
@@ -73,8 +88,14 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
       return h.continue;
     });
 
+    function registerRoute(config: Parameters<Server['route']>[0]) {
+      const cfg = config as { path: string };
+      glidemqPaths.add(cfg.path);
+      server.route(config);
+    }
+
     // POST /{name}/jobs - Add a job
-    server.route({
+    registerRoute({
       method: 'POST',
       path: `${pfx}/{name}/jobs`,
       handler: async (request: Request, h: ResponseToolkit) => {
@@ -108,7 +129,7 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
     });
 
     // POST /{name}/jobs/wait - Add a job and wait for result
-    server.route({
+    registerRoute({
       method: 'POST',
       path: `${pfx}/{name}/jobs/wait`,
       handler: async (request: Request, h: ResponseToolkit) => {
@@ -140,7 +161,7 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
     });
 
     // GET /{name}/jobs - List jobs
-    server.route({
+    registerRoute({
       method: 'GET',
       path: `${pfx}/{name}/jobs`,
       handler: async (request: Request, h: ResponseToolkit) => {
@@ -185,7 +206,7 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
     });
 
     // GET /{name}/jobs/{id} - Get a single job
-    server.route({
+    registerRoute({
       method: 'GET',
       path: `${pfx}/{name}/jobs/{id}`,
       handler: async (request: Request, h: ResponseToolkit) => {
@@ -202,7 +223,7 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
     });
 
     // POST /{name}/jobs/{id}/priority - Change job priority
-    server.route({
+    registerRoute({
       method: 'POST',
       path: `${pfx}/{name}/jobs/{id}/priority`,
       handler: async (request: Request, h: ResponseToolkit) => {
@@ -237,7 +258,7 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
     });
 
     // POST /{name}/jobs/{id}/delay - Change job delay
-    server.route({
+    registerRoute({
       method: 'POST',
       path: `${pfx}/{name}/jobs/{id}/delay`,
       handler: async (request: Request, h: ResponseToolkit) => {
@@ -272,7 +293,7 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
     });
 
     // POST /{name}/jobs/{id}/promote - Promote a delayed job
-    server.route({
+    registerRoute({
       method: 'POST',
       path: `${pfx}/{name}/jobs/{id}/promote`,
       options: {
@@ -294,7 +315,7 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
     });
 
     // GET /{name}/counts - Get job counts
-    server.route({
+    registerRoute({
       method: 'GET',
       path: `${pfx}/{name}/counts`,
       handler: async (request: Request, h: ResponseToolkit) => {
@@ -308,7 +329,7 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
     });
 
     // GET /{name}/metrics - Get queue metrics
-    server.route({
+    registerRoute({
       method: 'GET',
       path: `${pfx}/{name}/metrics`,
       handler: async (request: Request, h: ResponseToolkit) => {
@@ -348,7 +369,7 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
     });
 
     // POST /{name}/pause - Pause queue
-    server.route({
+    registerRoute({
       method: 'POST',
       path: `${pfx}/{name}/pause`,
       options: {
@@ -365,7 +386,7 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
     });
 
     // POST /{name}/resume - Resume queue
-    server.route({
+    registerRoute({
       method: 'POST',
       path: `${pfx}/{name}/resume`,
       options: {
@@ -382,7 +403,7 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
     });
 
     // POST /{name}/drain - Drain queue
-    server.route({
+    registerRoute({
       method: 'POST',
       path: `${pfx}/{name}/drain`,
       options: {
@@ -399,7 +420,7 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
     });
 
     // POST /{name}/retry - Retry failed jobs
-    server.route({
+    registerRoute({
       method: 'POST',
       path: `${pfx}/{name}/retry`,
       options: {
@@ -439,7 +460,7 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
     });
 
     // DELETE /{name}/clean - Clean old jobs
-    server.route({
+    registerRoute({
       method: 'DELETE',
       path: `${pfx}/{name}/clean`,
       handler: async (request: Request, h: ResponseToolkit) => {
@@ -479,7 +500,7 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
     });
 
     // GET /{name}/workers - List workers
-    server.route({
+    registerRoute({
       method: 'GET',
       path: `${pfx}/{name}/workers`,
       handler: async (request: Request, h: ResponseToolkit) => {
@@ -493,7 +514,7 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
     });
 
     // POST /{name}/produce - Add a job via Producer (lightweight, serverless)
-    server.route({
+    registerRoute({
       method: 'POST',
       path: `${pfx}/{name}/produce`,
       handler: async (request: Request, h: ResponseToolkit) => {
@@ -518,7 +539,6 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
           return h.response({ error: 'Validation failed', details: ['name: Required'] }).code(400);
         }
 
-        const PRODUCER_ALLOWED_OPTS = ['delay', 'priority', 'attempts', 'timeout', 'removeOnComplete', 'removeOnFail'];
         const rawOpts = body.opts ?? {};
         const safeOpts: Record<string, unknown> = {};
         for (const key of PRODUCER_ALLOWED_OPTS) {
@@ -533,7 +553,7 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
     // --- Scheduler endpoints ---
 
     // GET /{name}/schedulers - List all schedulers
-    server.route({
+    registerRoute({
       method: 'GET',
       path: `${pfx}/{name}/schedulers`,
       handler: async (request: Request, h: ResponseToolkit) => {
@@ -547,7 +567,7 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
     });
 
     // GET /{name}/schedulers/{schedulerName} - Get one scheduler
-    server.route({
+    registerRoute({
       method: 'GET',
       path: `${pfx}/{name}/schedulers/{schedulerName}`,
       handler: async (request: Request, h: ResponseToolkit) => {
@@ -569,7 +589,7 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
     });
 
     // PUT /{name}/schedulers/{schedulerName} - Upsert a scheduler
-    server.route({
+    registerRoute({
       method: 'PUT',
       path: `${pfx}/{name}/schedulers/{schedulerName}`,
       handler: async (request: Request, h: ResponseToolkit) => {
@@ -604,7 +624,7 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
     });
 
     // DELETE /{name}/schedulers/{schedulerName} - Remove a scheduler
-    server.route({
+    registerRoute({
       method: 'DELETE',
       path: `${pfx}/{name}/schedulers/{schedulerName}`,
       handler: async (request: Request, h: ResponseToolkit) => {
@@ -624,7 +644,7 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
 
     // GET /{name}/events - SSE stream
     const eventsHandler = createEventsHandler(server);
-    server.route({
+    registerRoute({
       method: 'GET',
       path: `${pfx}/{name}/events`,
       options: {

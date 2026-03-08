@@ -13,52 +13,54 @@ export function hasZod(): boolean {
 export function buildSchemas() {
   if (!z) return null;
 
+  const jobOptsSchema = z
+    .object({
+      delay: z.number().optional(),
+      priority: z.number().int().min(0).max(2048).optional(),
+      attempts: z.number().optional(),
+      timeout: z.number().optional(),
+      removeOnComplete: z
+        .union([z.boolean(), z.number(), z.object({ age: z.number(), count: z.number() })])
+        .optional(),
+      removeOnFail: z.union([z.boolean(), z.number(), z.object({ age: z.number(), count: z.number() })]).optional(),
+      jobId: z.string().optional(),
+      lifo: z.boolean().optional(),
+      deduplication: z
+        .object({
+          id: z.string(),
+          ttl: z.number().optional(),
+          mode: z.enum(['simple', 'throttle', 'debounce']).optional(),
+        })
+        .optional(),
+      ordering: z
+        .object({
+          key: z.string(),
+          concurrency: z.number().optional(),
+        })
+        .optional(),
+      cost: z.number().optional(),
+      backoff: z
+        .object({
+          type: z.string(),
+          delay: z.number(),
+          jitter: z.number().optional(),
+        })
+        .optional(),
+      parent: z
+        .object({
+          queue: z.string(),
+          id: z.string(),
+        })
+        .optional(),
+      ttl: z.number().optional(),
+    })
+    .optional()
+    .default({});
+
   const addJobSchema = z.object({
     name: z.string().min(1),
     data: z.unknown().optional().default({}),
-    opts: z
-      .object({
-        delay: z.number().optional(),
-        priority: z.number().int().min(0).max(2048).optional(),
-        attempts: z.number().optional(),
-        timeout: z.number().optional(),
-        removeOnComplete: z
-          .union([z.boolean(), z.number(), z.object({ age: z.number(), count: z.number() })])
-          .optional(),
-        removeOnFail: z.union([z.boolean(), z.number(), z.object({ age: z.number(), count: z.number() })]).optional(),
-        jobId: z.string().optional(),
-        lifo: z.boolean().optional(),
-        deduplication: z
-          .object({
-            id: z.string(),
-            ttl: z.number().optional(),
-            mode: z.enum(['simple', 'throttle', 'debounce']).optional(),
-          })
-          .optional(),
-        ordering: z
-          .object({
-            key: z.string(),
-            concurrency: z.number().optional(),
-          })
-          .optional(),
-        cost: z.number().optional(),
-        backoff: z
-          .object({
-            type: z.string(),
-            delay: z.number(),
-            jitter: z.number().optional(),
-          })
-          .optional(),
-        parent: z
-          .object({
-            queue: z.string(),
-            id: z.string(),
-          })
-          .optional(),
-        ttl: z.number().optional(),
-      })
-      .optional()
-      .default({}),
+    opts: jobOptsSchema,
   });
 
   const getJobsQuerySchema = z.object({
@@ -117,50 +119,8 @@ export function buildSchemas() {
   const addAndWaitBodySchema = z.object({
     name: z.string().min(1),
     data: z.unknown().optional().default({}),
-    opts: z
-      .object({
-        delay: z.number().optional(),
-        priority: z.number().int().min(0).max(2048).optional(),
-        attempts: z.number().optional(),
-        timeout: z.number().optional(),
-        removeOnComplete: z
-          .union([z.boolean(), z.number(), z.object({ age: z.number(), count: z.number() })])
-          .optional(),
-        removeOnFail: z.union([z.boolean(), z.number(), z.object({ age: z.number(), count: z.number() })]).optional(),
-        jobId: z.string().optional(),
-        lifo: z.boolean().optional(),
-        deduplication: z
-          .object({
-            id: z.string(),
-            ttl: z.number().optional(),
-            mode: z.enum(['simple', 'throttle', 'debounce']).optional(),
-          })
-          .optional(),
-        ordering: z
-          .object({
-            key: z.string(),
-            concurrency: z.number().optional(),
-          })
-          .optional(),
-        cost: z.number().optional(),
-        backoff: z
-          .object({
-            type: z.string(),
-            delay: z.number(),
-            jitter: z.number().optional(),
-          })
-          .optional(),
-        parent: z
-          .object({
-            queue: z.string(),
-            id: z.string(),
-          })
-          .optional(),
-        ttl: z.number().optional(),
-      })
-      .optional()
-      .default({}),
-    waitTimeout: z.number().optional(),
+    opts: jobOptsSchema,
+    waitTimeout: z.number().positive().optional(),
   });
 
   return {

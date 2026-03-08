@@ -149,15 +149,22 @@ export class QueueRegistryImpl implements QueueRegistry {
     if (this.closed) return;
     this.closed = true;
 
-    const closeOps: Promise<void>[] = [];
-    for (const { queue, worker } of this.managed.values()) {
-      if (worker) closeOps.push(worker.close());
-      closeOps.push(queue.close());
+    // Close workers first to drain in-progress jobs before closing queues
+    const workerCloses: Promise<void>[] = [];
+    for (const { worker } of this.managed.values()) {
+      if (worker) workerCloses.push(worker.close());
+    }
+    await Promise.allSettled(workerCloses);
+
+    const remainingCloses: Promise<void>[] = [];
+    for (const { queue } of this.managed.values()) {
+      remainingCloses.push(queue.close());
     }
     for (const producer of this.producers.values()) {
-      closeOps.push(producer.close());
+      remainingCloses.push(producer.close());
     }
-    await Promise.allSettled(closeOps);
+    await Promise.allSettled(remainingCloses);
+
     this.managed.clear();
     this.producers.clear();
   }
