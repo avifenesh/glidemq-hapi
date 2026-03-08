@@ -54,8 +54,8 @@
   "homepage": "https://github.com/avifenesh/glidemq-hapi#readme",
   "sideEffects": false,
   "peerDependencies": {
-    "glide-mq": ">=0.8.0",
     "@hapi/hapi": ">=21.0.0",
+    "glide-mq": ">=0.8.0",
     "zod": ">=3.0.0"
   },
   "peerDependenciesMeta": {
@@ -70,6 +70,7 @@
     "eslint-config-prettier": "^10.1.8",
     "glide-mq": "^0.8.0",
     "prettier": "^3.4.0",
+    "tsx": "^4.21.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.56.1",
     "vitest": "^3.0.0",
