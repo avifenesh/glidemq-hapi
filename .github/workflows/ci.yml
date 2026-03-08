@@ -19,9 +19,11 @@ jobs:
 
       - run: npm ci
 
-
       - name: Typecheck
         run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
 
   test-unit:
     needs: quality
