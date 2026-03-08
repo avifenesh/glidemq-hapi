@@ -109,10 +109,11 @@ export class QueueRegistryImpl implements QueueRegistry {
     let worker: Worker<D, R> | null = null;
 
     if (config.processor) {
+      const { connection: _c, prefix: _p, ...safeWorkerOpts } = (config.workerOpts ?? {}) as Record<string, unknown>;
       worker = new WorkerClass(name, config.processor, {
         ...queueOpts,
+        ...safeWorkerOpts,
         concurrency: config.concurrency ?? 1,
-        ...config.workerOpts,
       });
     }
 

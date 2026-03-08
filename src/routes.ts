@@ -153,9 +153,14 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
           return h.response({ error: 'Validation failed', details: ['name: Required'] }).code(400);
         }
 
+        const waitTimeout = body.waitTimeout;
+        if (waitTimeout !== undefined && (typeof waitTimeout !== 'number' || waitTimeout <= 0)) {
+          return h.response({ error: 'Validation failed', details: ['waitTimeout must be a positive number'] }).code(400);
+        }
+
         const rawOpts = body.opts ?? {};
         const safeOpts = pickOpts(rawOpts);
-        const returnvalue = await (queue as any).addAndWait(body.name, body.data ?? {}, safeOpts as any, body.waitTimeout);
+        const returnvalue = await (queue as any).addAndWait(body.name, body.data ?? {}, safeOpts as any, waitTimeout);
         return h.response({ returnvalue });
       },
     });
@@ -248,8 +253,8 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
 
         const body = request.payload as any;
         const priority = body?.priority;
-        if (priority === undefined || typeof priority !== 'number' || !Number.isInteger(priority) || priority < 0) {
-          return h.response({ error: 'Validation failed', details: ['priority must be a non-negative integer'] }).code(400);
+        if (priority === undefined || typeof priority !== 'number' || !Number.isInteger(priority) || priority < 0 || priority > 2048) {
+          return h.response({ error: 'Validation failed', details: ['priority must be an integer between 0 and 2048'] }).code(400);
         }
 
         await (job as any).changePriority(priority);
@@ -349,7 +354,10 @@ export const glideMQRoutes: Plugin<GlideMQRoutesOptions> = {
         }
 
         const query = request.query as Record<string, string>;
-        const typeParam = (query.type ?? '') as string;
+        const typeParam = query.type as string | undefined;
+        if (!typeParam) {
+          return h.response({ error: 'Validation failed', details: ['type: required (completed or failed)'] }).code(400);
+        }
         if (!VALID_METRICS_TYPES.includes(typeParam as any)) {
           return h
             .response({ error: 'Validation failed', details: [`type: must be one of ${VALID_METRICS_TYPES.join(', ')}`] })
