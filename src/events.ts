@@ -1,5 +1,6 @@
 import { PassThrough } from 'stream';
 import type { Request, ResponseToolkit, Server } from '@hapi/hapi';
+import Boom from '@hapi/boom';
 import type { QueueRegistry } from './types';
 
 interface EventSubscription {
@@ -101,7 +102,11 @@ export function createEventsHandler(server: Server) {
 
   return async (request: Request, h: ResponseToolkit) => {
     const { name } = request.params as { name: string };
-    const registry: QueueRegistry = request.server.glidemq;
+    const registry: QueueRegistry = request.glidemq;
+
+    if (!registry.has(name)) {
+      throw Boom.notFound('Queue not found');
+    }
 
     const stream = new PassThrough();
 

@@ -50,9 +50,9 @@ describe('glideMQRoutes', () => {
 
       expect(res.statusCode).toBe(400);
       const body = JSON.parse(res.payload);
-      expect(body.error).toBe('Validation failed');
-      expect(body.details).toBeDefined();
-      expect(Array.isArray(body.details)).toBe(true);
+      expect(body.statusCode).toBe(400);
+      expect(body.error).toBe('Bad Request');
+      expect(body.message).toBeDefined();
     });
 
     it('returns 404 for unconfigured queue', async () => {
@@ -144,7 +144,7 @@ describe('glideMQRoutes', () => {
       const res = await server.inject({ method: 'GET', url: '/emails/jobs?type=bogus' });
       expect(res.statusCode).toBe(400);
       const body = JSON.parse(res.payload);
-      expect(body.error).toBe('Validation failed');
+      expect(body.error).toBe('Bad Request');
     });
 
     it('supports excludeData query parameter', async () => {
@@ -343,7 +343,7 @@ describe('glideMQRoutes', () => {
       const res = await server.inject({ method: 'GET', url: '/emails/metrics' });
       expect(res.statusCode).toBe(400);
       const body = JSON.parse(res.payload);
-      expect(body.error).toBe('Validation failed');
+      expect(body.error).toBe('Bad Request');
     });
 
     it('returns 400 for invalid type', async () => {
@@ -533,7 +533,7 @@ describe('glideMQRoutes', () => {
       const { server } = await setup();
       const res = await server.inject({ method: 'GET', url: '/queue!@%23/counts' });
       expect(res.statusCode).toBe(400);
-      expect(JSON.parse(res.payload).error).toBe('Invalid queue name');
+      expect(JSON.parse(res.payload).error).toBe('Bad Request');
     });
 
     it('returns 400 for queue name with spaces', async () => {
@@ -593,7 +593,7 @@ describe('glideMQRoutes with restricted queues', () => {
     const { server } = await buildRestrictedApp(['emails']);
     const res = await server.inject({ method: 'GET', url: '/secret/counts' });
     expect(res.statusCode).toBe(404);
-    expect(JSON.parse(res.payload).error).toContain('not accessible');
+    expect(JSON.parse(res.payload).error).toBe('Not Found');
   });
 
   it('returns 404 for non-whitelisted queue job POST', async () => {
