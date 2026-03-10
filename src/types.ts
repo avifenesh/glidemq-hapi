@@ -65,15 +65,16 @@ export interface QueueRegistry {
 
 // --- Plugin options ---
 
-export type GlideMQPluginOptions = GlideMQConfig;
+export interface GlideMQPluginOptions extends GlideMQConfig {
+  /** If truthy, register REST + SSE routes. Pass an object to configure route scoping/prefix. */
+  routes?: boolean | GlideMQRoutesOptions;
+}
 
 export interface GlideMQRoutesOptions {
   /** Restrict API to specific queue names. Default: all configured queues. */
   queues?: string[];
   /** Restrict produce API to specific producer names. Default: all configured producers. */
   producers?: string[];
-  /** Route path prefix. Default: '' (no prefix). */
-  prefix?: string;
 }
 
 // --- Job serialization ---
@@ -118,6 +119,9 @@ export interface WorkerInfoResponse {
 
 declare module '@hapi/hapi' {
   interface Server {
+    glidemq: QueueRegistry;
+  }
+  interface Request {
     glidemq: QueueRegistry;
   }
 }
