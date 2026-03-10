@@ -1,5 +1,6 @@
 import type { Server, Request, ResponseToolkit } from '@hapi/hapi';
 import Boom from '@hapi/boom';
+import Joi from 'joi';
 import type { GlideMQRoutesOptions, QueueRegistry } from './types';
 import { serializeJob, serializeJobs } from './serializers';
 import {
@@ -325,7 +326,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
     options: {
       validate: {
         params: queueNameParamSchema,
-        payload: retryBodySchema,
+        payload: Joi.alternatives().try(retryBodySchema, Joi.any().valid(null)),
         failAction,
       },
     },
