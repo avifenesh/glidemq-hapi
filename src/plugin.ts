@@ -31,18 +31,13 @@ export const glideMQPlugin: Plugin<GlideMQPluginOptions> = {
       }
     }
 
-    // Server decoration: server.glidemq() returns the registry
-    server.decorate('server', 'glidemq', function (this: Server) {
-      return registry;
-    });
+    // Server decoration: server.glidemq is the registry
+    server.decorate('server', 'glidemq', registry);
 
-    // Request decoration: request.glidemq delegates to server.glidemq()
-    server.decorate(
-      'request',
-      'glidemq',
-      (request: Request) => (request.server as any).glidemq(),
-      { apply: true },
-    );
+    // Request decoration: request.glidemq accesses the registry directly
+    server.decorate('request', 'glidemq', (request: Request) => request.server.glidemq, {
+      apply: true,
+    });
 
     // Conditionally register REST + SSE routes
     if (options.routes) {

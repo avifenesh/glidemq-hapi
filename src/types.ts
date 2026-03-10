@@ -119,8 +119,8 @@ export interface WorkerInfoResponse {
 
 declare module '@hapi/hapi' {
   interface Server {
-    /** Call server.glidemq() to get the QueueRegistry. Decorated by @glidemq/hapi plugin. */
-    glidemq: () => QueueRegistry;
+    /** The QueueRegistry. Decorated by @glidemq/hapi plugin. */
+    glidemq: QueueRegistry;
   }
   interface Request {
     /** The QueueRegistry, computed per-request via apply decoration. */

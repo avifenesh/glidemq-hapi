@@ -16,5 +16,5 @@ export async function createTestApp(
   });
 
   await server.initialize();
-  return { server, registry: server.glidemq() };
+  return { server, registry: server.glidemq };
 }
