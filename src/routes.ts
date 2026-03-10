@@ -109,7 +109,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
     handler: async (request: Request, h: ResponseToolkit) => {
       const { name, registry } = requireQueue(request);
       const { queue } = registry.get(name);
-      const { type, start, end, excludeData } = request.query as {
+      const { type, start, end, excludeData } = request.query as unknown as {
         type: string;
         start: number;
         end: number;
@@ -251,7 +251,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
     handler: async (request: Request, h: ResponseToolkit) => {
       const { name, registry } = requireQueue(request);
       const { queue } = registry.get(name);
-      const { type, start, end } = request.query as { type: string; start: number; end: number };
+      const { type, start, end } = request.query as unknown as { type: string; start: number; end: number };
 
       const metrics = await (queue as any).getMetrics(type, { start, end });
       return h.response(metrics);
@@ -353,7 +353,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
     handler: async (request: Request, h: ResponseToolkit) => {
       const { name, registry } = requireQueue(request);
       const { queue } = registry.get(name);
-      const { grace, limit, type } = request.query as { grace: number; limit: number; type: string };
+      const { grace, limit, type } = request.query as unknown as { grace: number; limit: number; type: string };
 
       const removed = await queue.clean(grace, limit, type as any);
       return h.response({ removed: removed.length });
