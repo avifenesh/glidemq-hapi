@@ -37,7 +37,7 @@ const jobOptsSchema = Joi.object({
     id: Joi.string().required(),
   }),
   ttl: Joi.number(),
-}).default({});
+}).unknown(true).default({});
 
 // --- Param schemas ---
 
