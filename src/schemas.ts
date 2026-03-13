@@ -132,14 +132,14 @@ export const optionsSchema = Joi.object({
       processor: Joi.function(),
       concurrency: Joi.number().integer().min(1),
       workerOpts: Joi.object().unknown(true),
-    }),
+    }).unknown(true),
   ),
   producers: Joi.object().pattern(
     Joi.string(),
     Joi.object({
       compression: Joi.string().valid('none', 'gzip'),
       serializer: Joi.object().unknown(true),
-    }),
+    }).unknown(true),
   ),
   prefix: Joi.string(),
   testing: Joi.boolean(),

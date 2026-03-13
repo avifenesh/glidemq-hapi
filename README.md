@@ -22,8 +22,6 @@ Turns a Hapi v21 server into a queue management gateway. Built for teams that ru
 npm install @glidemq/hapi glide-mq @hapi/hapi
 ```
 
-Optional: `npm install zod`
-
 Requires **glide-mq 0.9+**.
 
 ## Quick start
@@ -91,7 +89,7 @@ The server now accepts `POST /emails/jobs` to enqueue jobs and `GET /emails/even
 - **Lightweight producers** -- configure `producers` for serverless or edge environments that only need to enqueue jobs. The `POST /{name}/produce` endpoint returns a job ID without requiring a worker.
 - **Scheduler CRUD** -- create, read, update, and delete repeatable jobs through four endpoints. Supports cron patterns, fixed intervals, and `repeatAfterComplete` mode.
 - **Testing without Valkey** -- `createTestApp` from `@glidemq/hapi/testing` spins up an in-memory server backed by `TestQueue` and `TestWorker`. Use `server.inject()` for assertions with no external dependencies.
-- **Optional Zod validation** -- when `zod` is installed, all request bodies and query parameters are validated with structured error messages. Without it, the plugin falls back to manual checks.
+- **Joi validation** -- all request bodies, query parameters, and plugin options are validated with Joi schemas and structured error messages.
 - **Queue access control** -- pass `allowedQueues` or `allowedProducers` arrays in `GlideMQRoutesOptions` to restrict which queues the API exposes. Requests to unlisted queues return 404.
 - **Route prefix** -- set `prefix` in `GlideMQRoutesOptions` to mount all 21 endpoints under a path like `/api/queues`.
 - **Automatic cleanup** -- the `onPostStop` lifecycle hook closes workers first (to drain in-progress jobs), then queues and producers, using `Promise.allSettled` for reliability.

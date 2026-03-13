@@ -26,8 +26,6 @@ const failAction = (_request: Request, _h: ResponseToolkit, err?: Error) => {
 export function registerRoutes(server: Server, _registry: QueueRegistry, opts: GlideMQRoutesOptions): void {
   const allowedQueues = opts?.queues;
   const allowedProducers = opts?.producers;
-  const pfx = '';
-
   function requireQueue(request: Request): { name: string; registry: QueueRegistry } {
     const { name } = request.params as { name: string };
     const registry = request.glidemq;
@@ -47,7 +45,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   // POST /{name}/jobs - Add a job
   server.route({
     method: 'POST',
-    path: `${pfx}/{name}/jobs`,
+    path: '/{name}/jobs',
     options: {
       validate: {
         params: queueNameParamSchema,
@@ -73,7 +71,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   // POST /{name}/jobs/wait - Add a job and wait for result
   server.route({
     method: 'POST',
-    path: `${pfx}/{name}/jobs/wait`,
+    path: '/{name}/jobs/wait',
     options: {
       validate: {
         params: queueNameParamSchema,
@@ -99,7 +97,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   // GET /{name}/jobs - List jobs
   server.route({
     method: 'GET',
-    path: `${pfx}/{name}/jobs`,
+    path: '/{name}/jobs',
     options: {
       validate: {
         params: queueNameParamSchema,
@@ -127,7 +125,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   // GET /{name}/jobs/{id} - Get a single job
   server.route({
     method: 'GET',
-    path: `${pfx}/{name}/jobs/{id}`,
+    path: '/{name}/jobs/{id}',
     options: {
       validate: {
         params: jobIdParamSchema,
@@ -148,7 +146,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   // POST /{name}/jobs/{id}/priority - Change job priority
   server.route({
     method: 'POST',
-    path: `${pfx}/{name}/jobs/{id}/priority`,
+    path: '/{name}/jobs/{id}/priority',
     options: {
       validate: {
         params: jobIdParamSchema,
@@ -173,7 +171,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   // POST /{name}/jobs/{id}/delay - Change job delay
   server.route({
     method: 'POST',
-    path: `${pfx}/{name}/jobs/{id}/delay`,
+    path: '/{name}/jobs/{id}/delay',
     options: {
       validate: {
         params: jobIdParamSchema,
@@ -198,7 +196,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   // POST /{name}/jobs/{id}/promote - Promote a delayed job
   server.route({
     method: 'POST',
-    path: `${pfx}/{name}/jobs/{id}/promote`,
+    path: '/{name}/jobs/{id}/promote',
     options: {
       validate: {
         params: jobIdParamSchema,
@@ -222,7 +220,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   // GET /{name}/counts - Get job counts
   server.route({
     method: 'GET',
-    path: `${pfx}/{name}/counts`,
+    path: '/{name}/counts',
     options: {
       validate: {
         params: queueNameParamSchema,
@@ -241,7 +239,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   // GET /{name}/metrics - Get queue metrics
   server.route({
     method: 'GET',
-    path: `${pfx}/{name}/metrics`,
+    path: '/{name}/metrics',
     options: {
       validate: {
         params: queueNameParamSchema,
@@ -262,7 +260,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   // POST /{name}/pause - Pause queue
   server.route({
     method: 'POST',
-    path: `${pfx}/{name}/pause`,
+    path: '/{name}/pause',
     options: {
       validate: {
         params: queueNameParamSchema,
@@ -282,7 +280,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   // POST /{name}/resume - Resume queue
   server.route({
     method: 'POST',
-    path: `${pfx}/{name}/resume`,
+    path: '/{name}/resume',
     options: {
       validate: {
         params: queueNameParamSchema,
@@ -302,7 +300,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   // POST /{name}/drain - Drain queue
   server.route({
     method: 'POST',
-    path: `${pfx}/{name}/drain`,
+    path: '/{name}/drain',
     options: {
       validate: {
         params: queueNameParamSchema,
@@ -322,7 +320,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   // POST /{name}/retry - Retry failed jobs
   server.route({
     method: 'POST',
-    path: `${pfx}/{name}/retry`,
+    path: '/{name}/retry',
     options: {
       validate: {
         params: queueNameParamSchema,
@@ -343,7 +341,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   // DELETE /{name}/clean - Clean old jobs
   server.route({
     method: 'DELETE',
-    path: `${pfx}/{name}/clean`,
+    path: '/{name}/clean',
     options: {
       validate: {
         params: queueNameParamSchema,
@@ -364,7 +362,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   // GET /{name}/workers - List workers
   server.route({
     method: 'GET',
-    path: `${pfx}/{name}/workers`,
+    path: '/{name}/workers',
     options: {
       validate: {
         params: queueNameParamSchema,
@@ -383,7 +381,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   // POST /{name}/produce - Add a job via Producer (lightweight, serverless)
   server.route({
     method: 'POST',
-    path: `${pfx}/{name}/produce`,
+    path: '/{name}/produce',
     options: {
       validate: {
         params: queueNameParamSchema,
@@ -411,7 +409,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   // GET /{name}/schedulers - List all schedulers
   server.route({
     method: 'GET',
-    path: `${pfx}/{name}/schedulers`,
+    path: '/{name}/schedulers',
     options: {
       validate: {
         params: queueNameParamSchema,
@@ -430,7 +428,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   // GET /{name}/schedulers/{schedulerName} - Get one scheduler
   server.route({
     method: 'GET',
-    path: `${pfx}/{name}/schedulers/{schedulerName}`,
+    path: '/{name}/schedulers/{schedulerName}',
     options: {
       validate: {
         params: schedulerParamSchema,
@@ -451,7 +449,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   // PUT /{name}/schedulers/{schedulerName} - Upsert a scheduler
   server.route({
     method: 'PUT',
-    path: `${pfx}/{name}/schedulers/{schedulerName}`,
+    path: '/{name}/schedulers/{schedulerName}',
     options: {
       validate: {
         params: schedulerParamSchema,
@@ -476,7 +474,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   // DELETE /{name}/schedulers/{schedulerName} - Remove a scheduler
   server.route({
     method: 'DELETE',
-    path: `${pfx}/{name}/schedulers/{schedulerName}`,
+    path: '/{name}/schedulers/{schedulerName}',
     options: {
       validate: {
         params: schedulerParamSchema,
@@ -497,7 +495,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   const eventsHandler = createEventsHandler(server);
   server.route({
     method: 'GET',
-    path: `${pfx}/{name}/events`,
+    path: '/{name}/events',
     options: {
       validate: {
         params: queueNameParamSchema,
