@@ -51,7 +51,7 @@
   "bugs": {
     "url": "https://github.com/avifenesh/glidemq-hapi/issues"
   },
-  "homepage": "https://github.com/avifenesh/glidemq-hapi#readme",
+  "homepage": "https://avifenesh.github.io/glide-mq.dev/integrations/hapi",
   "sideEffects": false,
   "peerDependencies": {
     "@hapi/hapi": ">=21.0.0",

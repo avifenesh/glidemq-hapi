@@ -2,6 +2,7 @@
 
 [![npm](https://img.shields.io/npm/v/@glidemq/hapi)](https://www.npmjs.com/package/@glidemq/hapi)
 [![license](https://img.shields.io/npm/l/@glidemq/hapi)](https://github.com/avifenesh/glidemq-hapi/blob/main/LICENSE)
+[![docs](https://img.shields.io/badge/docs-glide--mq.dev-6366f1)](https://avifenesh.github.io/glide-mq.dev/)
 
 REST API and real-time SSE for [glide-mq](https://github.com/avifenesh/glide-mq) job queues, as a Hapi.js plugin. Two registrations -- declare queues, get 21 endpoints.
 
@@ -9,6 +10,7 @@ Turns a Hapi v21 server into a queue management gateway. Built for teams that ru
 
 > If glide-mq is useful to you, consider [giving it a star](https://github.com/avifenesh/glide-mq). It helps others discover the project.
 
+**[Full documentation](https://avifenesh.github.io/glide-mq.dev/integrations/hapi)** | **[Core docs](https://avifenesh.github.io/glide-mq.dev/guide/getting-started)**
 ## Why @glidemq/hapi
 
 - Use this when you need HTTP endpoints to manage glide-mq queues without writing route handlers yourself.
