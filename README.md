@@ -3,7 +3,7 @@
 [![npm](https://img.shields.io/npm/v/@glidemq/hapi)](https://www.npmjs.com/package/@glidemq/hapi)
 [![license](https://img.shields.io/npm/l/@glidemq/hapi)](https://github.com/avifenesh/glidemq-hapi/blob/main/LICENSE)
 
-Hapi v21 plugin that turns [glide-mq](https://github.com/avifenesh/glide-mq) queues into a REST API with real-time SSE - two registrations, 21 endpoints.
+Hapi v21 plugin that turns [glide-mq](https://github.com/avifenesh/glide-mq) queues into a REST API with real-time SSE - two registrations, 24 endpoints. Works as a general-purpose job queue API and as an AI orchestration layer with built-in usage tracking, budget monitoring, and streaming endpoints.
 
 ## Why
 
@@ -17,7 +17,7 @@ Hapi v21 plugin that turns [glide-mq](https://github.com/avifenesh/glide-mq) que
 npm install @glidemq/hapi glide-mq @hapi/hapi joi
 ```
 
-Requires **glide-mq >= 0.13.0** and **Hapi 21+**.
+Requires **glide-mq >= 0.14.0** and **Hapi 21+**.
 
 ## Quick start
 
@@ -49,9 +49,19 @@ await server.start();
 
 `glideMQPlugin` creates a registry on `server.glidemq`. The `onPostStop` hook handles graceful shutdown.
 
-## AI-native features
+## AI-native endpoints
 
-glide-mq 0.13+ provides AI orchestration primitives - token/cost tracking, real-time streaming, human-in-the-loop suspend/signal, model failover chains, budget caps, dual-axis rate limiting, and vector search. All are accessible through this plugin via the REST API or `server.glidemq` registry. See the [glide-mq docs](https://github.com/avifenesh/glide-mq) for details.
+glide-mq 0.14+ provides AI orchestration primitives - token/cost tracking, real-time streaming, human-in-the-loop suspend/signal, model failover chains, budget caps, dual-axis rate limiting, and vector search. This plugin exposes them as REST/SSE endpoints:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/{name}/flows/{id}/usage` | Aggregated token/cost usage for a flow |
+| `GET` | `/{name}/flows/{id}/budget` | Budget status and remaining limits for a flow |
+| `GET` | `/{name}/jobs/{id}/stream` | SSE stream of a job's output chunks |
+
+Job serialization includes AI fields when present: `usage`, `signals`, `budgetKey`, `fallbackIndex`, `tpmTokens`. SSE events include `usage`, `suspended`, and `budget-exceeded` event types.
+
+All AI features are also accessible programmatically via the `server.glidemq` registry. See the [glide-mq docs](https://github.com/avifenesh/glide-mq) for details.
 
 ## Configuration
 

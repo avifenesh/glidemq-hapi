@@ -1,3 +1,4 @@
+import { PassThrough } from 'stream';
 import type { Server, Request, ResponseToolkit } from '@hapi/hapi';
 import Boom from '@hapi/boom';
 import Joi from 'joi';
@@ -7,6 +8,8 @@ import {
   queueNameParamSchema,
   jobIdParamSchema,
   schedulerParamSchema,
+  flowIdParamSchema,
+  jobStreamParamSchema,
   addJobSchema,
   addAndWaitBodySchema as addAndWaitSchema,
   getJobsQuerySchema,
@@ -488,6 +491,109 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
 
       await (queue as any).removeJobScheduler(schedulerName);
       return h.response().code(204);
+    },
+  });
+
+  // --- AI-native endpoints ---
+
+  // GET /{name}/flows/{id}/usage - Get aggregated token/cost usage for a flow
+  server.route({
+    method: 'GET',
+    path: '/{name}/flows/{id}/usage',
+    options: {
+      validate: {
+        params: flowIdParamSchema,
+        failAction,
+      },
+    },
+    handler: async (request: Request, h: ResponseToolkit) => {
+      const { name, registry } = requireQueue(request);
+      const { queue } = registry.get(name);
+      const { id } = request.params as { name: string; id: string };
+
+      const usage = await (queue as any).getFlowUsage(id);
+      if (!usage) throw Boom.notFound('Flow not found');
+      return h.response(usage);
+    },
+  });
+
+  // GET /{name}/flows/{id}/budget - Get budget status for a flow
+  server.route({
+    method: 'GET',
+    path: '/{name}/flows/{id}/budget',
+    options: {
+      validate: {
+        params: flowIdParamSchema,
+        failAction,
+      },
+    },
+    handler: async (request: Request, h: ResponseToolkit) => {
+      const { name, registry } = requireQueue(request);
+      const { queue } = registry.get(name);
+      const { id } = request.params as { name: string; id: string };
+
+      const budget = await (queue as any).getFlowBudget(id);
+      if (!budget) throw Boom.notFound('Flow not found');
+      return h.response(budget);
+    },
+  });
+
+  // GET /{name}/jobs/{id}/stream - SSE stream for a single job's output chunks
+  server.route({
+    method: 'GET',
+    path: '/{name}/jobs/{id}/stream',
+    options: {
+      validate: {
+        params: jobStreamParamSchema,
+        failAction,
+      },
+      timeout: { server: false, socket: false },
+    },
+    handler: async (request: Request, h: ResponseToolkit) => {
+      const { name, registry } = requireQueue(request);
+      const { queue } = registry.get(name);
+      const { id } = request.params as { name: string; id: string };
+
+      const stream = new PassThrough();
+      const response = h
+        .response(stream)
+        .type('text/event-stream')
+        .header('Cache-Control', 'no-cache');
+
+      stream.write(':ok\n\n');
+
+      let eventId = 0;
+      let running = true;
+      const ac = new AbortController();
+
+      request.raw.req.on('close', () => {
+        running = false;
+        ac.abort();
+      });
+
+      (async () => {
+        try {
+          const reader = (queue as any).readStream(id);
+          for await (const chunk of reader) {
+            if (!running) break;
+            const ok = stream.write(`event: chunk\ndata: ${JSON.stringify(chunk)}\nid: ${String(eventId++)}\n\n`);
+            if (!ok) break;
+          }
+          if (running) {
+            stream.write(`event: done\ndata: {}\nid: ${String(eventId++)}\n\n`);
+          }
+        } catch (err: any) {
+          if (running) {
+            stream.write(`event: error\ndata: ${JSON.stringify({ message: err.message })}\nid: ${String(eventId++)}\n\n`);
+          }
+        } finally {
+          if (!stream.writableEnded) {
+            stream.end();
+          }
+        }
+      })();
+
+      return response;
     },
   });
 

@@ -122,6 +122,18 @@ export const metricsQuerySchema = Joi.object({
   end: Joi.number().default(-1),
 });
 
+// --- AI-native param schemas ---
+
+export const flowIdParamSchema = Joi.object({
+  name: Joi.string().pattern(/^[a-zA-Z0-9_-]{1,128}$/).required(),
+  id: Joi.string().required(),
+});
+
+export const jobStreamParamSchema = Joi.object({
+  name: Joi.string().pattern(/^[a-zA-Z0-9_-]{1,128}$/).required(),
+  id: Joi.string().required(),
+});
+
 // --- Plugin options schema ---
 
 export const optionsSchema = Joi.object({

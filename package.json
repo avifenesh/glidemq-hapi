@@ -1,6 +1,6 @@
 {
   "name": "@glidemq/hapi",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Hapi plugin for glide-mq - queue management REST API and SSE events",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -55,7 +55,7 @@
   "sideEffects": false,
   "peerDependencies": {
     "@hapi/hapi": ">=21.0.0",
-    "glide-mq": ">=0.13.0",
+    "glide-mq": ">=0.14.0",
     "joi": ">=17.0.0"
   },
   "devDependencies": {
