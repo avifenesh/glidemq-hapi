@@ -24,7 +24,7 @@ Turns a Hapi v21 server into a queue management gateway. Built for teams that ru
 npm install @glidemq/hapi glide-mq @hapi/hapi
 ```
 
-Requires **glide-mq 0.9+**.
+Requires **glide-mq 0.13+**.
 
 ## Quick start
 
@@ -161,6 +161,18 @@ server.route({
 });
 ```
 
+## AI-native features (glide-mq 0.13+)
+
+glide-mq 0.13 introduces AI-native orchestration primitives. All of these are accessible through the Hapi plugin via direct registry access or through the REST API:
+
+- **Token/cost tracking** -- `reportUsage()` and `getFlowUsage()` for per-job and per-flow token and cost accounting
+- **Real-time streaming** -- `job.stream()`, `readStream()`, and SSE for streaming LLM output to clients
+- **Human-in-the-loop** -- `suspend()` and `signal()` for pausing jobs pending human approval
+- **Model failover** -- fallback chains for ordered model/provider alternatives on failure
+- **Budget caps** -- flow-level token and cost limits via budget middleware
+- **Rate limiting** -- dual-axis RPM + TPM rate limiting for LLM API compliance
+- **Vector search** -- `createJobIndex()` and `vectorSearch()` for semantic search over jobs
+
 ## Limitations
 
 - Requires a running Valkey or Redis instance for production use. Testing mode uses in-memory stubs only.
@@ -172,7 +184,7 @@ server.route({
 
 | Package | Description |
 |---------|-------------|
-| [glide-mq](https://github.com/avifenesh/glide-mq) | Core queue library |
+| [glide-mq](https://github.com/avifenesh/glide-mq) | AI-native queue library -- orchestration, streaming, failover, budget caps |
 | [@glidemq/hono](https://github.com/avifenesh/glidemq-hono) | Hono REST + SSE middleware |
 | [@glidemq/fastify](https://github.com/avifenesh/glidemq-fastify) | Fastify REST + SSE plugin |
 | [@glidemq/nestjs](https://github.com/avifenesh/glidemq-nestjs) | NestJS module with decorators |
