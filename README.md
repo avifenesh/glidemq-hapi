@@ -2,29 +2,22 @@
 
 [![npm](https://img.shields.io/npm/v/@glidemq/hapi)](https://www.npmjs.com/package/@glidemq/hapi)
 [![license](https://img.shields.io/npm/l/@glidemq/hapi)](https://github.com/avifenesh/glidemq-hapi/blob/main/LICENSE)
-[![docs](https://img.shields.io/badge/docs-glide--mq.dev-6366f1)](https://avifenesh.github.io/glide-mq.dev/)
 
-REST API and real-time SSE for [glide-mq](https://github.com/avifenesh/glide-mq) job queues, as a Hapi.js plugin. Two registrations -- declare queues, get 21 endpoints.
+Hapi v21 plugin that turns [glide-mq](https://github.com/avifenesh/glide-mq) queues into a REST API with real-time SSE - two registrations, 21 endpoints.
 
-Turns a Hapi v21 server into a queue management gateway. Built for teams that run Hapi in production and need to expose queue operations to dashboards, CLI tools, or other services.
+## Why
 
-> If glide-mq is useful to you, consider [giving it a star](https://github.com/avifenesh/glide-mq). It helps others discover the project.
-
-**[Full documentation](https://avifenesh.github.io/glide-mq.dev/integrations/hapi)** | **[Core docs](https://avifenesh.github.io/glide-mq.dev/guide/getting-started)**
-## Why @glidemq/hapi
-
-- Use this when you need HTTP endpoints to manage glide-mq queues without writing route handlers yourself.
-- Use this when you want live SSE streams of job events for dashboards or monitoring.
-- Use this when serverless functions only need to enqueue jobs through lightweight Producer endpoints.
-- Use this when you need to test queue logic in CI without a running Valkey instance.
+- **Zero route boilerplate** - declare queues, get job CRUD, metrics, schedulers, and SSE endpoints
+- **Testable without Valkey** - `createTestApp` builds an in-memory Hapi server for `server.inject()` assertions
+- **Joi validation** - all request bodies and query params validated with structured error messages
 
 ## Install
 
 ```bash
-npm install @glidemq/hapi glide-mq @hapi/hapi
+npm install @glidemq/hapi glide-mq @hapi/hapi joi
 ```
 
-Requires **glide-mq 0.13+**.
+Requires **glide-mq >= 0.13.0** and **Hapi 21+**.
 
 ## Quick start
 
@@ -41,7 +34,7 @@ await server.register({
     queues: {
       emails: {
         processor: async (job) => {
-          console.log("Sending to", job.data.to);
+          await sendEmail(job.data.to, job.data.subject);
           return { sent: true };
         },
       },
@@ -51,50 +44,14 @@ await server.register({
 
 await server.register({ plugin: glideMQRoutes });
 await server.start();
+// POST /emails/jobs to enqueue, GET /emails/events for SSE
 ```
 
-The server now accepts `POST /emails/jobs` to enqueue jobs and `GET /emails/events` for live SSE. See the full endpoint table below.
+`glideMQPlugin` creates a registry on `server.glidemq`. The `onPostStop` hook handles graceful shutdown.
 
-## How it works
+## AI-native features
 
-`glideMQPlugin` creates a `QueueRegistry`, decorates `server.glidemq` so every route handler can access it, eagerly initializes configured producers, and registers an `onPostStop` hook that closes all queues, workers, and producers on shutdown. `glideMQRoutes` depends on the core plugin and mounts 21 REST endpoints under an optional path prefix. Queue and worker instances are created lazily on first request; producers are created eagerly so connection errors surface at startup.
-
-## Endpoints
-
-| Method | Route | Description |
-|--------|-------|-------------|
-| POST | `/{name}/jobs` | Add a job to a queue |
-| POST | `/{name}/jobs/wait` | Add a job and wait for result |
-| GET | `/{name}/jobs` | List jobs by state |
-| GET | `/{name}/jobs/{id}` | Get a single job |
-| POST | `/{name}/jobs/{id}/priority` | Change job priority |
-| POST | `/{name}/jobs/{id}/delay` | Change job delay |
-| POST | `/{name}/jobs/{id}/promote` | Promote a delayed job |
-| GET | `/{name}/counts` | Get job counts by state |
-| GET | `/{name}/metrics` | Get completed or failed metrics |
-| POST | `/{name}/pause` | Pause a queue |
-| POST | `/{name}/resume` | Resume a paused queue |
-| POST | `/{name}/drain` | Drain all waiting jobs |
-| POST | `/{name}/retry` | Retry failed jobs |
-| DELETE | `/{name}/clean` | Clean old completed or failed jobs |
-| GET | `/{name}/workers` | List active workers |
-| POST | `/{name}/produce` | Add a job via Producer |
-| GET | `/{name}/schedulers` | List all schedulers |
-| GET | `/{name}/schedulers/{schedulerName}` | Get a single scheduler |
-| PUT | `/{name}/schedulers/{schedulerName}` | Upsert a scheduler |
-| DELETE | `/{name}/schedulers/{schedulerName}` | Remove a scheduler |
-| GET | `/{name}/events` | SSE event stream |
-
-## Features
-
-- **SSE event streaming** -- subscribe to `completed`, `failed`, `progress`, `active`, `waiting`, `stalled`, and `heartbeat` events on any queue via `GET /{name}/events`. Uses `PassThrough` streams with shared `QueueEvents` instances (ref-counted per queue).
-- **Lightweight producers** -- configure `producers` for serverless or edge environments that only need to enqueue jobs. The `POST /{name}/produce` endpoint returns a job ID without requiring a worker.
-- **Scheduler CRUD** -- create, read, update, and delete repeatable jobs through four endpoints. Supports cron patterns, fixed intervals, and `repeatAfterComplete` mode.
-- **Testing without Valkey** -- `createTestApp` from `@glidemq/hapi/testing` spins up an in-memory server backed by `TestQueue` and `TestWorker`. Use `server.inject()` for assertions with no external dependencies.
-- **Joi validation** -- all request bodies, query parameters, and plugin options are validated with Joi schemas and structured error messages.
-- **Queue access control** -- pass `allowedQueues` or `allowedProducers` arrays in `GlideMQRoutesOptions` to restrict which queues the API exposes. Requests to unlisted queues return 404.
-- **Route prefix** -- set `prefix` in `GlideMQRoutesOptions` to mount all 21 endpoints under a path like `/api/queues`.
-- **Automatic cleanup** -- the `onPostStop` lifecycle hook closes workers first (to drain in-progress jobs), then queues and producers, using `Promise.allSettled` for reliability.
+glide-mq 0.13+ provides AI orchestration primitives - token/cost tracking, real-time streaming, human-in-the-loop suspend/signal, model failover chains, budget caps, dual-axis rate limiting, and vector search. All are accessible through this plugin via the REST API or `server.glidemq` registry. See the [glide-mq docs](https://github.com/avifenesh/glide-mq) for details.
 
 ## Configuration
 
@@ -103,29 +60,22 @@ interface GlideMQPluginOptions {
   connection?: ConnectionOptions; // Required unless testing: true
   queues?: Record<string, QueueConfig>;
   producers?: Record<string, ProducerConfig>;
-  prefix?: string;       // Key prefix for Valkey keys (default: 'glide')
-  testing?: boolean;     // Use TestQueue/TestWorker, no Valkey needed
-  serializer?: Serializer;
-}
-
-interface QueueConfig {
-  processor?: (job: Job) => Promise<any>; // Omit for producer-only queues
-  concurrency?: number;                   // Default: 1
-  workerOpts?: Record<string, unknown>;
-}
-
-interface ProducerConfig {
-  compression?: "none" | "gzip";
-  serializer?: Serializer;
+  prefix?: string;    // Valkey key prefix (default: "glide")
+  testing?: boolean;  // In-memory mode, no Valkey needed
 }
 ```
 
+Route access control via `GlideMQRoutesOptions`:
+
 ```ts
-interface GlideMQRoutesOptions {
-  queues?: string[];     // Restrict API to these queue names
-  producers?: string[];  // Restrict produce API to these producer names
-  prefix?: string;       // Route path prefix (e.g. '/api/queues')
-}
+await server.register({
+  plugin: glideMQRoutes,
+  options: {
+    prefix: "/api/queues",
+    allowedQueues: ["emails"],
+    allowedProducers: ["emails"],
+  },
+});
 ```
 
 ## Testing
@@ -142,58 +92,24 @@ const res = await server.inject({
   url: "/emails/jobs",
   payload: { name: "welcome", data: { to: "user@test.com" } },
 });
-expect(res.statusCode).toBe(201);
+// res.statusCode === 201
 
 await server.stop();
 ```
 
-## Direct registry access
-
-```ts
-server.route({
-  method: "GET",
-  path: "/pending-count",
-  handler: async (request, h) => {
-    const { queue } = request.server.glidemq.get("emails");
-    const counts = await queue.getJobCounts();
-    return h.response({ waiting: counts.waiting });
-  },
-});
-```
-
-## AI-native features (glide-mq 0.13+)
-
-glide-mq 0.13 introduces AI-native orchestration primitives. All of these are accessible through the Hapi plugin via direct registry access or through the REST API:
-
-- **Token/cost tracking** -- `reportUsage()` and `getFlowUsage()` for per-job and per-flow token and cost accounting
-- **Real-time streaming** -- `job.stream()`, `readStream()`, and SSE for streaming LLM output to clients
-- **Human-in-the-loop** -- `suspend()` and `signal()` for pausing jobs pending human approval
-- **Model failover** -- fallback chains for ordered model/provider alternatives on failure
-- **Budget caps** -- flow-level token and cost limits via budget middleware
-- **Rate limiting** -- dual-axis RPM + TPM rate limiting for LLM API compliance
-- **Vector search** -- `createJobIndex()` and `vectorSearch()` for semantic search over jobs
-
 ## Limitations
 
-- Requires a running Valkey or Redis instance for production use. Testing mode uses in-memory stubs only.
-- No built-in authentication or authorization. Add Hapi auth strategies or gateway-level controls separately.
-- `addAndWait` (the `POST /{name}/jobs/wait` endpoint) is not available in testing mode because `TestQueue` does not support it.
-- Producers are not supported in testing mode. Use queue-based endpoints for test assertions.
+- No built-in authentication. Add Hapi auth strategies or gateway-level controls separately.
+- `addAndWait` (`POST /{name}/jobs/wait`) is not available in testing mode.
+- Producers are not supported in testing mode.
 
-## Ecosystem
+## Links
 
-| Package | Description |
-|---------|-------------|
-| [glide-mq](https://github.com/avifenesh/glide-mq) | AI-native queue library -- orchestration, streaming, failover, budget caps |
-| [@glidemq/hono](https://github.com/avifenesh/glidemq-hono) | Hono REST + SSE middleware |
-| [@glidemq/fastify](https://github.com/avifenesh/glidemq-fastify) | Fastify REST + SSE plugin |
-| [@glidemq/nestjs](https://github.com/avifenesh/glidemq-nestjs) | NestJS module with decorators |
-| [@glidemq/dashboard](https://github.com/avifenesh/glidemq-dashboard) | Web UI for queue monitoring |
-
-## Contributing
-
-Issues and pull requests are welcome at [github.com/avifenesh/glidemq-hapi](https://github.com/avifenesh/glidemq-hapi). Run `npm test` before submitting. See [CHANGELOG.md](./CHANGELOG.md) for release history.
+- [glide-mq](https://github.com/avifenesh/glide-mq) - core library
+- [Full documentation](https://avifenesh.github.io/glide-mq.dev/integrations/hapi)
+- [Issues](https://github.com/avifenesh/glidemq-hapi/issues)
+- [@glidemq/hono](https://github.com/avifenesh/glidemq-hono) | [@glidemq/fastify](https://github.com/avifenesh/glidemq-fastify) | [@glidemq/nestjs](https://github.com/avifenesh/glidemq-nestjs) | [@glidemq/dashboard](https://github.com/avifenesh/glidemq-dashboard)
 
 ## License
 
-Apache-2.0
+[Apache-2.0](./LICENSE)
