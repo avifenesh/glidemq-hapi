@@ -120,7 +120,7 @@ await server.stop();
 ## Links
 
 - [glide-mq](https://github.com/avifenesh/glide-mq) - core library
-- [Full documentation](https://avifenesh.github.io/glide-mq.dev/integrations/hapi)
+- [Full documentation](https://avifenesh.github.io/glidemq.dev/integrations/hapi)
 - [Issues](https://github.com/avifenesh/glidemq-hapi/issues)
 - [@glidemq/hono](https://github.com/avifenesh/glidemq-hono) | [@glidemq/fastify](https://github.com/avifenesh/glidemq-fastify) | [@glidemq/nestjs](https://github.com/avifenesh/glidemq-nestjs) | [@glidemq/dashboard](https://github.com/avifenesh/glidemq-dashboard)
 
