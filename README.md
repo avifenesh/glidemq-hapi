@@ -3,7 +3,7 @@
 [![npm](https://img.shields.io/npm/v/@glidemq/hapi)](https://www.npmjs.com/package/@glidemq/hapi)
 [![license](https://img.shields.io/npm/l/@glidemq/hapi)](https://github.com/avifenesh/glidemq-hapi/blob/main/LICENSE)
 
-Hapi v21 plugin that turns [glide-mq](https://github.com/avifenesh/glide-mq) queues into a REST API with real-time SSE - two registrations, 24 endpoints. Works as a general-purpose job queue API and as an AI orchestration layer with built-in usage tracking, budget monitoring, and streaming endpoints.
+Hapi v21 plugin that turns [glide-mq](https://github.com/avifenesh/glide-mq) queues into a REST API with real-time SSE - one registration, 24 endpoints. Works as a general-purpose job queue API and as an AI orchestration layer with built-in usage tracking, budget monitoring, and streaming endpoints.
 
 ## Why
 
@@ -23,7 +23,7 @@ Requires **glide-mq >= 0.14.0** and **Hapi 21+**.
 
 ```ts
 import Hapi from "@hapi/hapi";
-import { glideMQPlugin, glideMQRoutes } from "@glidemq/hapi";
+import { glideMQPlugin } from "@glidemq/hapi";
 
 const server = Hapi.server({ port: 3000 });
 
@@ -39,15 +39,15 @@ await server.register({
         },
       },
     },
+    routes: true, // mounts REST + SSE endpoints
   },
 });
 
-await server.register({ plugin: glideMQRoutes });
 await server.start();
 // POST /emails/jobs to enqueue, GET /emails/events for SSE
 ```
 
-`glideMQPlugin` creates a registry on `server.glidemq`. The `onPostStop` hook handles graceful shutdown.
+`glideMQPlugin` creates a registry on `server.glidemq` and optionally mounts routes. The `onPostStop` hook handles graceful shutdown.
 
 ## AI-native endpoints
 
@@ -72,6 +72,7 @@ interface GlideMQPluginOptions {
   producers?: Record<string, ProducerConfig>;
   prefix?: string;    // Valkey key prefix (default: "glide")
   testing?: boolean;  // In-memory mode, no Valkey needed
+  routes?: boolean | GlideMQRoutesOptions; // Mount REST + SSE endpoints
 }
 ```
 
@@ -79,11 +80,14 @@ Route access control via `GlideMQRoutesOptions`:
 
 ```ts
 await server.register({
-  plugin: glideMQRoutes,
+  plugin: glideMQPlugin,
   options: {
-    prefix: "/api/queues",
-    allowedQueues: ["emails"],
-    allowedProducers: ["emails"],
+    connection: { addresses: [{ host: "localhost", port: 6379 }] },
+    queues: { emails: { processor: async (job) => ({ sent: true }) } },
+    routes: {
+      queues: ["emails"],    // restrict to specific queues
+      producers: ["emails"], // restrict to specific producers
+    },
   },
 });
 ```

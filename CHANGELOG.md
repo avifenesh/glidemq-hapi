@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0
+
+- Added AI-native endpoints: flow usage, flow budget, job stream SSE
+- Added AI fields to job serialization: `usage`, `signals`, `budgetKey`, `fallbackIndex`, `tpmTokens`
+- Added AI event types to SSE: `usage`, `suspended`, `budget-exceeded`
+- Added `serializer` option to `GlideMQConfig` and `ProducerConfig`
+- Updated README to reflect merged routes API
+
 ## 0.2.0
 
 - Migrated validation from Zod to Joi (native Hapi ecosystem)

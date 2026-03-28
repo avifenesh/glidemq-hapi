@@ -562,30 +562,39 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
 
       stream.write(':ok\n\n');
 
-      let eventId = 0;
+      let lastId = (request.headers['last-event-id'] as string)
+        || (request.query as any).lastId as string
+        || undefined;
       let running = true;
-      const ac = new AbortController();
 
       request.raw.req.on('close', () => {
         running = false;
-        ac.abort();
       });
 
       (async () => {
         try {
-          const reader = (queue as any).readStream(id);
-          for await (const chunk of reader) {
-            if (!running) break;
-            const ok = stream.write(`event: chunk\ndata: ${JSON.stringify(chunk)}\nid: ${String(eventId++)}\n\n`);
-            if (!ok) break;
+          while (running) {
+            const entries = await (queue as any).readStream(id, { lastId, count: 100 });
+            for (const entry of entries) {
+              stream.write(`id: ${entry.id}\ndata: ${JSON.stringify(entry.fields)}\n\n`);
+              lastId = entry.id;
+            }
+
+            const job = await queue.getJob(id);
+            if (!job) break;
+            const state = await (job as any).getState();
+            if (state === 'completed' || state === 'failed') {
+              const trailing = await (queue as any).readStream(id, { lastId, count: 100 });
+              for (const entry of trailing) {
+                stream.write(`id: ${entry.id}\ndata: ${JSON.stringify(entry.fields)}\n\n`);
+              }
+              break;
+            }
+
+            await new Promise<void>((r) => setTimeout(r, 500));
           }
-          if (running) {
-            stream.write(`event: done\ndata: {}\nid: ${String(eventId++)}\n\n`);
-          }
-        } catch (err: any) {
-          if (running) {
-            stream.write(`event: error\ndata: ${JSON.stringify({ message: err.message })}\nid: ${String(eventId++)}\n\n`);
-          }
+        } catch {
+          // Connection lost or queue error - end gracefully
         } finally {
           if (!stream.writableEnded) {
             stream.end();

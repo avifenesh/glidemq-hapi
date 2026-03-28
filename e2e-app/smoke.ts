@@ -8,7 +8,7 @@
 
 import Hapi from '@hapi/hapi';
 import http from 'http';
-import { glideMQPlugin, glideMQRoutes, QueueRegistryImpl } from '../src/index';
+import { glideMQPlugin, QueueRegistryImpl } from '../src/index';
 import { Queue } from 'glide-mq';
 
 const CONNECTION = { addresses: [{ host: 'localhost', port: 6379 }] };
@@ -69,12 +69,9 @@ async function main() {
           concurrency: 2,
         },
       },
+      routes: true,
     },
-  });
-
-  await server.register({
-    plugin: glideMQRoutes,
-    options: { prefix: '/api' },
+    routes: { prefix: '/api' },
   });
 
   await server.start();
