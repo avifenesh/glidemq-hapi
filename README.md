@@ -3,7 +3,7 @@
 [![npm](https://img.shields.io/npm/v/@glidemq/hapi)](https://www.npmjs.com/package/@glidemq/hapi)
 [![license](https://img.shields.io/npm/l/@glidemq/hapi)](https://github.com/avifenesh/glidemq-hapi/blob/main/LICENSE)
 
-Hapi v21 plugin that turns [glide-mq](https://github.com/avifenesh/glide-mq) queues into a REST API with real-time SSE. Works as a general-purpose job queue API and as an AI orchestration layer with built-in usage tracking, budget monitoring, streaming endpoints, queue-wide usage summaries, and broadcast pub/sub over HTTP.
+Hapi v21 plugin that turns [glide-mq](https://github.com/avifenesh/glide-mq) queues into a REST API with real-time SSE. Works as a general-purpose job queue API and as an AI orchestration layer with built-in usage tracking, budget monitoring, flow orchestration over HTTP, streaming endpoints, queue-wide usage summaries, and broadcast pub/sub over HTTP.
 
 ## Why
 
@@ -57,12 +57,17 @@ glide-mq 0.14+ provides AI orchestration primitives - token/cost tracking, real-
 |--------|------|-------------|
 | `GET` | `/{name}/flows/{id}/usage` | Aggregated token/cost usage for a flow |
 | `GET` | `/{name}/flows/{id}/budget` | Budget status and remaining limits for a flow |
+| `POST` | `/flows` | Create a tree flow or DAG over HTTP with `{ flow, budget? }` or `{ dag }` |
+| `GET` | `/flows/{id}` | Inspect a flow snapshot with nodes, roots, counts, usage, and budget |
+| `GET` | `/flows/{id}/tree` | Inspect the nested tree view for a submitted tree flow or DAG |
+| `DELETE` | `/flows/{id}` | Revoke or flag remaining jobs in a flow and delete the HTTP flow record |
 | `GET` | `/usage/summary` | Rolling usage totals across one or more queues |
 | `GET` | `/{name}/jobs/{id}/stream` | SSE stream of a job's output chunks |
 | `POST` | `/broadcast/{name}` | Publish a broadcast message with `subject` + payload |
 | `GET` | `/broadcast/{name}/events?subscription=...` | Durable SSE stream for a broadcast subscription |
 
 Job serialization includes AI fields when present: `usage`, `signals`, `budgetKey`, `fallbackIndex`, `tpmTokens`. SSE events include `usage`, `suspended`, and `budget-exceeded` event types.
+HTTP-submitted budgets are currently supported for tree flows only, not DAG payloads.
 
 All AI features are also accessible programmatically via the `server.glidemq` registry. See the [glide-mq docs](https://github.com/avifenesh/glide-mq) for details.
 
@@ -118,7 +123,7 @@ await server.stop();
 
 - No built-in authentication. Add Hapi auth strategies or gateway-level controls separately.
 - `addAndWait` (`POST /{name}/jobs/wait`) is not available in testing mode.
-- `/usage/summary` and `/broadcast/*` require a live connection and are not available in testing mode.
+- `/flows*`, `/usage/summary`, and `/broadcast/*` require a live connection and are not available in testing mode.
 - Producers are not supported in testing mode.
 
 ## Links
