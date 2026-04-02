@@ -26,9 +26,63 @@ const failAction = (_request: Request, _h: ResponseToolkit, err?: Error) => {
   throw err;
 };
 
+const SSE_BLOCK_MS = 5_000;
+const SSE_HEARTBEAT_MS = 15_000;
+
+type BroadcastClient = {
+  matcher: ((subject: string) => boolean) | null;
+  stream: PassThrough;
+};
+
+type SharedBroadcastStream = {
+  clients: Set<BroadcastClient>;
+  closing: boolean;
+  ready: Promise<void>;
+  worker: { close: () => Promise<void> };
+  close: () => Promise<void>;
+};
+
+function parseCsvQuery(raw: string | undefined): string[] | undefined {
+  if (!raw) return undefined;
+  const values = raw
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return values.length > 0 ? values : undefined;
+}
+
+function parseIntegerQuery(raw: string | undefined, name: string, opts?: { min?: number }): number | undefined {
+  if (raw == null) return undefined;
+  if (!/^-?\d+$/.test(raw)) {
+    throw Boom.badRequest(`${name} must be an integer`);
+  }
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value)) {
+    throw Boom.badRequest(`${name} must be an integer`);
+  }
+  if (opts?.min != null && value < opts.min) {
+    throw Boom.badRequest(`${name} must be >= ${opts.min}`);
+  }
+  return value;
+}
+
+function writeSSEChunk(stream: PassThrough, event: string, data: string, id?: string): boolean {
+  try {
+    if (stream.destroyed || stream.writableEnded) return false;
+    if (id != null) stream.write(`id: ${id}\n`);
+    stream.write(`event: ${event}\n`);
+    stream.write(`data: ${data}\n\n`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function registerRoutes(server: Server, _registry: QueueRegistry, opts: GlideMQRoutesOptions): void {
   const allowedQueues = opts?.queues;
   const allowedProducers = opts?.producers;
+  const broadcastStreams = new Map<string, SharedBroadcastStream>();
+
   function requireQueue(request: Request): { name: string; registry: QueueRegistry } {
     const { name } = request.params as { name: string };
     const registry = request.glidemq;
@@ -44,6 +98,159 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
     if (!registry.hasProducer(name)) throw Boom.notFound('Producer not found');
     return { name, registry };
   }
+
+  function requireBroadcast(request: Request): { name: string; registry: QueueRegistry } {
+    const { name } = request.params as { name: string };
+    const registry = request.glidemq;
+    if (allowedQueues && !allowedQueues.includes(name)) throw Boom.notFound('Queue not found');
+    return { name, registry };
+  }
+
+  function getLiveConnection(registry: QueueRegistry, feature: string) {
+    const connection = registry.getConnection();
+    if (!connection) {
+      throw Boom.badImplementation(`Connection config required for ${feature}`);
+    }
+    return connection;
+  }
+
+  function removeBroadcastClient(shared: SharedBroadcastStream, client: BroadcastClient): void {
+    if (!shared.clients.delete(client)) return;
+    try {
+      if (!client.stream.writableEnded) {
+        client.stream.end();
+      }
+    } catch {
+      // ignore
+    }
+    if (shared.clients.size === 0) {
+      void shared.close();
+    }
+  }
+
+  async function getSharedBroadcastStream(name: string, subscription: string, registry: QueueRegistry): Promise<SharedBroadcastStream> {
+    const prefix = registry.getPrefix();
+    const cacheKey = `${prefix ?? ''}\u0000${name}\u0000${subscription}`;
+    const cached = broadcastStreams.get(cacheKey);
+    if (cached) {
+      await cached.ready;
+      return cached;
+    }
+
+    const connection = getLiveConnection(registry, 'broadcast SSE');
+    const { BroadcastWorker } = require('glide-mq') as typeof import('glide-mq');
+    const clients = new Set<BroadcastClient>();
+
+    const shared: SharedBroadcastStream = {
+      clients,
+      closing: false,
+      ready: Promise.resolve(),
+      worker: null as unknown as { close: () => Promise<void> },
+      close: async () => {
+        if (shared.closing) return;
+        shared.closing = true;
+        broadcastStreams.delete(cacheKey);
+        for (const client of Array.from(clients)) {
+          try {
+            if (!client.stream.writableEnded) {
+              client.stream.end();
+            }
+          } catch {
+            // ignore
+          }
+        }
+        clients.clear();
+        await shared.worker.close();
+      },
+    };
+
+    const worker = new BroadcastWorker(
+      name,
+      async (job) => {
+        const payload = JSON.stringify({
+          data: job.data,
+          id: job.id,
+          subject: job.name,
+          timestamp: job.timestamp,
+        });
+        for (const client of Array.from(shared.clients)) {
+          if (client.matcher && !client.matcher(job.name)) continue;
+          if (!writeSSEChunk(client.stream, 'message', payload, job.id)) {
+            removeBroadcastClient(shared, client);
+          }
+        }
+      },
+      {
+        blockTimeout: SSE_BLOCK_MS,
+        connection,
+        prefix,
+        subscription,
+      },
+    );
+
+    shared.worker = worker;
+    shared.ready = worker.waitUntilReady();
+    broadcastStreams.set(cacheKey, shared);
+
+    try {
+      await shared.ready;
+      return shared;
+    } catch (error) {
+      broadcastStreams.delete(cacheKey);
+      await worker.close().catch(() => undefined);
+      throw error;
+    }
+  }
+
+  server.ext({
+    type: 'onPostStop',
+    method: async () => {
+      for (const shared of Array.from(broadcastStreams.values())) {
+        await shared.close().catch(() => undefined);
+      }
+      broadcastStreams.clear();
+    },
+  });
+
+  server.route({
+    method: 'GET',
+    path: '/usage/summary',
+    handler: async (request: Request, h: ResponseToolkit) => {
+      const registry = request.glidemq;
+      const query = request.query as {
+        queues?: string;
+        start?: string;
+        end?: string;
+        window?: string;
+        windowMs?: string;
+      };
+
+      const requestedQueues = parseCsvQuery(query.queues);
+      if (requestedQueues) {
+        for (const queueName of requestedQueues) {
+          const { error } = queueNameParamSchema.validate({ name: queueName });
+          if (error) throw Boom.badRequest('Invalid queue name');
+          if (allowedQueues && !allowedQueues.includes(queueName)) throw Boom.notFound('Queue not found');
+        }
+      }
+
+      if (query.window && query.windowMs && query.window !== query.windowMs) {
+        throw Boom.badRequest('window and windowMs must match when both are provided');
+      }
+
+      const { Queue } = require('glide-mq') as typeof import('glide-mq');
+      const summary = await Queue.getUsageSummary({
+        connection: getLiveConnection(registry, 'usage summary'),
+        endTime: parseIntegerQuery(query.end, 'end', { min: 0 }),
+        prefix: registry.getPrefix(),
+        queues: requestedQueues ?? allowedQueues,
+        startTime: parseIntegerQuery(query.start, 'start', { min: 0 }),
+        windowMs: parseIntegerQuery(query.windowMs ?? query.window, query.windowMs ? 'windowMs' : 'window', { min: 1 }),
+      });
+
+      return h.response(summary);
+    },
+  });
 
   // POST /{name}/jobs - Add a job
   server.route({
@@ -619,5 +826,98 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
       timeout: { server: false, socket: false },
     },
     handler: eventsHandler,
+  });
+
+  server.route({
+    method: 'POST',
+    path: '/broadcast/{name}',
+    options: {
+      validate: {
+        params: queueNameParamSchema,
+        payload: Joi.object({
+          subject: Joi.string().trim().min(1).required(),
+          data: Joi.any(),
+          opts: Joi.object().unknown(true),
+        }),
+        failAction,
+      },
+    },
+    handler: async (request: Request, h: ResponseToolkit) => {
+      const { name, registry } = requireBroadcast(request);
+      const { Broadcast } = require('glide-mq') as typeof import('glide-mq');
+      const { subject, data, opts: jobOpts } = request.payload as {
+        subject: string;
+        data?: unknown;
+        opts?: Record<string, unknown>;
+      };
+
+      const broadcast = new Broadcast(name, {
+        connection: getLiveConnection(registry, 'broadcast publish'),
+        prefix: registry.getPrefix(),
+      });
+
+      try {
+        const id = await broadcast.publish(subject, data ?? null, jobOpts as any);
+        return h.response(id ? { id, subject } : { skipped: true }).code(id ? 201 : 200);
+      } finally {
+        await broadcast.close().catch(() => undefined);
+      }
+    },
+  });
+
+  server.route({
+    method: 'GET',
+    path: '/broadcast/{name}/events',
+    options: {
+      validate: {
+        params: queueNameParamSchema,
+        query: Joi.object({
+          subscription: Joi.string().trim().min(1).required(),
+          subjects: Joi.string().optional(),
+        }),
+        failAction,
+      },
+      timeout: { server: false, socket: false },
+    },
+    handler: async (request: Request, h: ResponseToolkit) => {
+      const { name, registry } = requireBroadcast(request);
+      const { subscription, subjects } = request.query as { subscription: string; subjects?: string };
+      const { compileSubjectMatcher } = require('glide-mq') as typeof import('glide-mq');
+      const shared = await getSharedBroadcastStream(name, subscription, registry);
+      const stream = new PassThrough();
+      const client: BroadcastClient = {
+        matcher: compileSubjectMatcher(parseCsvQuery(subjects)),
+        stream,
+      };
+
+      const response = h
+        .response(stream)
+        .type('text/event-stream')
+        .header('Cache-Control', 'no-cache');
+
+      stream.write(':ok\n\n');
+      shared.clients.add(client);
+
+      request.raw.req.on('close', () => {
+        removeBroadcastClient(shared, client);
+      });
+
+      (async () => {
+        try {
+          while (!stream.writableEnded) {
+            if (!writeSSEChunk(stream, 'heartbeat', JSON.stringify({ time: Date.now() }))) {
+              break;
+            }
+            await new Promise<void>((resolve) => setTimeout(resolve, SSE_HEARTBEAT_MS));
+          }
+        } finally {
+          removeBroadcastClient(shared, client);
+        }
+      })().catch(() => {
+        removeBroadcastClient(shared, client);
+      });
+
+      return response;
+    },
   });
 }

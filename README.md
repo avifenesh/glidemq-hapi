@@ -3,7 +3,7 @@
 [![npm](https://img.shields.io/npm/v/@glidemq/hapi)](https://www.npmjs.com/package/@glidemq/hapi)
 [![license](https://img.shields.io/npm/l/@glidemq/hapi)](https://github.com/avifenesh/glidemq-hapi/blob/main/LICENSE)
 
-Hapi v21 plugin that turns [glide-mq](https://github.com/avifenesh/glide-mq) queues into a REST API with real-time SSE - one registration, 24 endpoints. Works as a general-purpose job queue API and as an AI orchestration layer with built-in usage tracking, budget monitoring, and streaming endpoints.
+Hapi v21 plugin that turns [glide-mq](https://github.com/avifenesh/glide-mq) queues into a REST API with real-time SSE. Works as a general-purpose job queue API and as an AI orchestration layer with built-in usage tracking, budget monitoring, streaming endpoints, queue-wide usage summaries, and broadcast pub/sub over HTTP.
 
 ## Why
 
@@ -57,7 +57,10 @@ glide-mq 0.14+ provides AI orchestration primitives - token/cost tracking, real-
 |--------|------|-------------|
 | `GET` | `/{name}/flows/{id}/usage` | Aggregated token/cost usage for a flow |
 | `GET` | `/{name}/flows/{id}/budget` | Budget status and remaining limits for a flow |
+| `GET` | `/usage/summary` | Rolling usage totals across one or more queues |
 | `GET` | `/{name}/jobs/{id}/stream` | SSE stream of a job's output chunks |
+| `POST` | `/broadcast/{name}` | Publish a broadcast message with `subject` + payload |
+| `GET` | `/broadcast/{name}/events?subscription=...` | Durable SSE stream for a broadcast subscription |
 
 Job serialization includes AI fields when present: `usage`, `signals`, `budgetKey`, `fallbackIndex`, `tpmTokens`. SSE events include `usage`, `suspended`, and `budget-exceeded` event types.
 
@@ -115,12 +118,13 @@ await server.stop();
 
 - No built-in authentication. Add Hapi auth strategies or gateway-level controls separately.
 - `addAndWait` (`POST /{name}/jobs/wait`) is not available in testing mode.
+- `/usage/summary` and `/broadcast/*` require a live connection and are not available in testing mode.
 - Producers are not supported in testing mode.
 
 ## Links
 
 - [glide-mq](https://github.com/avifenesh/glide-mq) - core library
-- [Full documentation](https://avifenesh.github.io/glidemq.dev/integrations/hapi)
+- [Full documentation](https://glidemq.dev/integrations/hapi)
 - [Issues](https://github.com/avifenesh/glidemq-hapi/issues)
 - [@glidemq/hono](https://github.com/avifenesh/glidemq-hono) | [@glidemq/fastify](https://github.com/avifenesh/glidemq-fastify) | [@glidemq/nestjs](https://github.com/avifenesh/glidemq-nestjs) | [@glidemq/dashboard](https://github.com/avifenesh/glidemq-dashboard)
 
