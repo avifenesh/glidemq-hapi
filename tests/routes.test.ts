@@ -612,7 +612,7 @@ describe('glideMQRoutes', () => {
 
   describe('Route prefix', () => {
     it('routes work under configured prefix', async () => {
-      const { server, registry } = await buildTestApp(
+      const { server } = await buildTestApp(
         { emails: { processor: async () => ({}) } },
         { prefix: '/api/queues' },
       );
