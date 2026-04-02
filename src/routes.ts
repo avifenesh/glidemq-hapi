@@ -1,9 +1,9 @@
-import { PassThrough } from 'stream';
-import type { Server, Request, ResponseToolkit } from '@hapi/hapi';
-import Boom from '@hapi/boom';
-import Joi from 'joi';
-import type { GlideMQRoutesOptions, QueueRegistry } from './types';
-import { serializeJob, serializeJobs } from './serializers';
+import { PassThrough } from "stream";
+import type { Server, Request, ResponseToolkit } from "@hapi/hapi";
+import Boom from "@hapi/boom";
+import Joi from "joi";
+import type { GlideMQRoutesOptions, QueueRegistry } from "./types";
+import { serializeJob, serializeJobs } from "./serializers";
 import {
   queueNameParamSchema,
   jobIdParamSchema,
@@ -19,8 +19,8 @@ import {
   changePriorityBodySchema as changePrioritySchema,
   changeDelayBodySchema as changeDelaySchema,
   upsertSchedulerBodySchema as upsertSchedulerSchema,
-} from './schemas';
-import { createEventsHandler } from './events';
+} from "./schemas";
+import { createEventsHandler } from "./events";
 
 const failAction = (_request: Request, _h: ResponseToolkit, err?: Error) => {
   throw err;
@@ -42,7 +42,7 @@ type SharedBroadcastStream = {
   close: () => Promise<void>;
 };
 
-type FlowKind = 'tree' | 'dag';
+type FlowKind = "tree" | "dag";
 
 type FlowDefinition = {
   name: string;
@@ -79,16 +79,78 @@ type FlowTreeNode = FlowNodeSummary & {
   children: FlowTreeNode[];
 };
 
+type FlowHashEntry = {
+  field?: unknown;
+  key?: unknown;
+  value?: unknown;
+};
+
+type FlowHashData =
+  | FlowHashEntry[]
+  | Record<string, unknown>
+  | null
+  | undefined;
+
+type FlowClient = {
+  del: (keys: string[]) => Promise<unknown>;
+  hgetall: (key: string) => Promise<FlowHashData>;
+  hset: (key: string, values: Record<string, string>) => Promise<unknown>;
+  sadd: (key: string, members: string[]) => Promise<unknown>;
+  smembers: (
+    key: string,
+  ) => Promise<unknown[] | Set<unknown> | null | undefined>;
+};
+
+type FlowQueueAdapter = {
+  getClient?: () => Promise<FlowClient | null>;
+  getFlowBudget: (id: string) => Promise<unknown>;
+  getFlowUsage: (id: string) => Promise<unknown>;
+  keys: { job: (id: string) => string };
+  revoke: (id: string) => Promise<string>;
+};
+
+type FlowJobAdapter = {
+  getState: () => Promise<string>;
+  parentIds?: string[];
+  parentQueues?: string[];
+};
+
+type FlowJobNode = {
+  job: { id: string };
+  children?: FlowJobNode[];
+};
+
+type FlowProducerAdapter = {
+  add: (
+    flow: FlowDefinition,
+    opts?: { budget?: Record<string, unknown> },
+  ) => Promise<FlowJobNode>;
+  addDAG: (dag: DagDefinition) => Promise<Map<string, { id: string }>>;
+  close: () => Promise<void>;
+};
+
+function asFlowQueue(queue: unknown): FlowQueueAdapter {
+  return queue as FlowQueueAdapter;
+}
+
+function asFlowJob(job: unknown): FlowJobAdapter {
+  return job as FlowJobAdapter;
+}
+
 function parseCsvQuery(raw: string | undefined): string[] | undefined {
   if (!raw) return undefined;
   const values = raw
-    .split(',')
+    .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
   return values.length > 0 ? values : undefined;
 }
 
-function parseIntegerQuery(raw: string | undefined, name: string, opts?: { min?: number }): number | undefined {
+function parseIntegerQuery(
+  raw: string | undefined,
+  name: string,
+  opts?: { min?: number },
+): number | undefined {
   if (raw == null) return undefined;
   if (!/^-?\d+$/.test(raw)) {
     throw Boom.badRequest(`${name} must be an integer`);
@@ -103,7 +165,12 @@ function parseIntegerQuery(raw: string | undefined, name: string, opts?: { min?:
   return value;
 }
 
-function writeSSEChunk(stream: PassThrough, event: string, data: string, id?: string): boolean {
+function writeSSEChunk(
+  stream: PassThrough,
+  event: string,
+  data: string,
+  id?: string,
+): boolean {
   try {
     if (stream.destroyed || stream.writableEnded) return false;
     if (id != null) stream.write(`id: ${id}\n`);
@@ -116,15 +183,15 @@ function writeSSEChunk(stream: PassThrough, event: string, data: string, id?: st
 }
 
 function flowMetaKey(flowId: string, prefix?: string): string {
-  return `${prefix ?? 'glide'}:flow:${flowId}:meta`;
+  return `${prefix ?? "glide"}:flow:${flowId}:meta`;
 }
 
 function flowJobsKey(flowId: string, prefix?: string): string {
-  return `${prefix ?? 'glide'}:flow:${flowId}:jobs`;
+  return `${prefix ?? "glide"}:flow:${flowId}:jobs`;
 }
 
 function flowRootsKey(flowId: string, prefix?: string): string {
-  return `${prefix ?? 'glide'}:flow:${flowId}:roots`;
+  return `${prefix ?? "glide"}:flow:${flowId}:roots`;
 }
 
 function encodeFlowJobRef(ref: FlowJobRef): string {
@@ -132,13 +199,30 @@ function encodeFlowJobRef(ref: FlowJobRef): string {
 }
 
 function decodeFlowJobRef(raw: string): FlowJobRef | null {
-  const separator = raw.indexOf(':');
+  const separator = raw.indexOf(":");
   if (separator <= 0 || separator === raw.length - 1) return null;
-  return { queueName: raw.slice(0, separator), jobId: raw.slice(separator + 1) };
+  return {
+    queueName: raw.slice(0, separator),
+    jobId: raw.slice(separator + 1),
+  };
 }
 
-function hashEntriesToRecord(hashData: any): Record<string, string> | null {
-  if (!Array.isArray(hashData) || hashData.length === 0) return null;
+function hashEntriesToRecord(
+  hashData: FlowHashData,
+): Record<string, string> | null {
+  if (!hashData) return null;
+
+  if (!Array.isArray(hashData)) {
+    const entries = Object.entries(hashData);
+    if (entries.length === 0) return null;
+    const record: Record<string, string> = Object.create(null);
+    for (const [key, value] of entries) {
+      record[key] = String(value);
+    }
+    return record;
+  }
+
+  if (hashData.length === 0) return null;
   const record: Record<string, string> = Object.create(null);
   for (const entry of hashData) {
     const key = entry?.field ?? entry?.key;
@@ -148,7 +232,10 @@ function hashEntriesToRecord(hashData: any): Record<string, string> | null {
   return Object.keys(record).length > 0 ? record : null;
 }
 
-function collectFlowQueueNames(flow: FlowDefinition, acc: Set<string> = new Set()): Set<string> {
+function collectFlowQueueNames(
+  flow: FlowDefinition,
+  acc: Set<string> = new Set(),
+): Set<string> {
   acc.add(flow.queueName);
   for (const child of flow.children ?? []) {
     collectFlowQueueNames(child, acc);
@@ -164,17 +251,31 @@ function collectDagQueueNames(dag: DagDefinition): Set<string> {
   return names;
 }
 
-function buildFlowTreeNodes(flowId: string, roots: FlowJobRef[], nodes: FlowNodeSummary[]): FlowTreeNode[] {
+function buildFlowTreeNodes(
+  flowId: string,
+  roots: FlowJobRef[],
+  nodes: FlowNodeSummary[],
+): FlowTreeNode[] {
   const nodeMap = new Map<string, FlowNodeSummary>();
   const childrenByParent = new Map<string, FlowNodeSummary[]>();
 
   for (const node of nodes) {
-    nodeMap.set(encodeFlowJobRef({ jobId: node.id, queueName: node.queueName }), node);
+    nodeMap.set(
+      encodeFlowJobRef({ jobId: node.id, queueName: node.queueName }),
+      node,
+    );
 
     const parentRefs: FlowJobRef[] = [];
-    if (node.parentIds && node.parentQueues && node.parentIds.length === node.parentQueues.length) {
+    if (
+      node.parentIds &&
+      node.parentQueues &&
+      node.parentIds.length === node.parentQueues.length
+    ) {
       for (let i = 0; i < node.parentIds.length; i++) {
-        parentRefs.push({ jobId: node.parentIds[i], queueName: node.parentQueues[i] });
+        parentRefs.push({
+          jobId: node.parentIds[i],
+          queueName: node.parentQueues[i],
+        });
       }
     } else if (node.parentId) {
       parentRefs.push({ jobId: node.parentId, queueName: node.queueName });
@@ -200,7 +301,7 @@ function buildFlowTreeNodes(flowId: string, roots: FlowJobRef[], nodes: FlowNode
         finishedOn: undefined,
         flowId,
         id: ref.jobId,
-        name: '',
+        name: "",
         opts: {},
         parentId: undefined,
         parentIds: undefined,
@@ -210,16 +311,24 @@ function buildFlowTreeNodes(flowId: string, roots: FlowJobRef[], nodes: FlowNode
         progress: 0,
         queueName: ref.queueName,
         returnvalue: undefined,
-        state: 'missing',
+        state: "missing",
         timestamp: 0,
       };
     }
 
     const children = (childrenByParent.get(key) ?? [])
       .slice()
-      .sort((a, b) => a.timestamp - b.timestamp || a.queueName.localeCompare(b.queueName) || a.id.localeCompare(b.id))
+      .sort(
+        (a, b) =>
+          a.timestamp - b.timestamp ||
+          a.queueName.localeCompare(b.queueName) ||
+          a.id.localeCompare(b.id),
+      )
       .map((child) => {
-        const childKey = encodeFlowJobRef({ jobId: child.id, queueName: child.queueName });
+        const childKey = encodeFlowJobRef({
+          jobId: child.id,
+          queueName: child.queueName,
+        });
         if (path.has(childKey)) {
           return { ...child, children: [] };
         }
@@ -233,35 +342,55 @@ function buildFlowTreeNodes(flowId: string, roots: FlowJobRef[], nodes: FlowNode
 
   return roots
     .slice()
-    .sort((a, b) => a.queueName.localeCompare(b.queueName) || a.jobId.localeCompare(b.jobId))
+    .sort(
+      (a, b) =>
+        a.queueName.localeCompare(b.queueName) ||
+        a.jobId.localeCompare(b.jobId),
+    )
     .map((root) => visit(root, new Set([encodeFlowJobRef(root)])));
 }
 
-export function registerRoutes(server: Server, _registry: QueueRegistry, opts: GlideMQRoutesOptions): void {
+export function registerRoutes(
+  server: Server,
+  _registry: QueueRegistry,
+  opts: GlideMQRoutesOptions,
+): void {
   const allowedQueues = opts?.queues;
   const allowedProducers = opts?.producers;
   const broadcastStreams = new Map<string, SharedBroadcastStream>();
 
-  function requireQueue(request: Request): { name: string; registry: QueueRegistry } {
+  function requireQueue(request: Request): {
+    name: string;
+    registry: QueueRegistry;
+  } {
     const { name } = request.params as { name: string };
     const registry = request.glidemq;
-    if (allowedQueues && !allowedQueues.includes(name)) throw Boom.notFound('Queue not found');
-    if (!registry.has(name)) throw Boom.notFound('Queue not found');
+    if (allowedQueues && !allowedQueues.includes(name))
+      throw Boom.notFound("Queue not found");
+    if (!registry.has(name)) throw Boom.notFound("Queue not found");
     return { name, registry };
   }
 
-  function requireProducer(request: Request): { name: string; registry: QueueRegistry } {
+  function requireProducer(request: Request): {
+    name: string;
+    registry: QueueRegistry;
+  } {
     const { name } = request.params as { name: string };
     const registry = request.glidemq;
-    if (allowedProducers && !allowedProducers.includes(name)) throw Boom.notFound('Producer not found');
-    if (!registry.hasProducer(name)) throw Boom.notFound('Producer not found');
+    if (allowedProducers && !allowedProducers.includes(name))
+      throw Boom.notFound("Producer not found");
+    if (!registry.hasProducer(name)) throw Boom.notFound("Producer not found");
     return { name, registry };
   }
 
-  function requireBroadcast(request: Request): { name: string; registry: QueueRegistry } {
+  function requireBroadcast(request: Request): {
+    name: string;
+    registry: QueueRegistry;
+  } {
     const { name } = request.params as { name: string };
     const registry = request.glidemq;
-    if (allowedQueues && !allowedQueues.includes(name)) throw Boom.notFound('Queue not found');
+    if (allowedQueues && !allowedQueues.includes(name))
+      throw Boom.notFound("Queue not found");
     return { name, registry };
   }
 
@@ -278,26 +407,36 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
     return names.filter((name) => registry.has(name));
   }
 
-  async function getFlowClient(registry: QueueRegistry): Promise<any> {
+  async function getFlowClient(registry: QueueRegistry): Promise<FlowClient> {
     const queueNames = getFlowClientQueueNames(registry);
     if (queueNames.length === 0) {
-      throw Boom.badImplementation('Flow HTTP endpoints require at least one configured queue');
+      throw Boom.badImplementation(
+        "Flow HTTP endpoints require at least one configured queue",
+      );
     }
     const { queue } = registry.get(queueNames[0]);
-    const client = await (queue as any).getClient?.();
+    const client = await asFlowQueue(queue).getClient?.();
     if (!client) {
-      throw Boom.badImplementation('Connection config required for flow HTTP endpoints');
+      throw Boom.badImplementation(
+        "Connection config required for flow HTTP endpoints",
+      );
     }
     return client;
   }
 
-  function assertAllowedFlowQueues(registry: QueueRegistry, queueNames: Iterable<string>): void {
+  function assertAllowedFlowQueues(
+    registry: QueueRegistry,
+    queueNames: Iterable<string>,
+  ): void {
     for (const queueName of queueNames) {
-      if (queueNameParamSchema.validate(queueName).error) {
-        throw Boom.badRequest('Invalid queue name');
+      if (queueNameParamSchema.validate({ name: queueName }).error) {
+        throw Boom.badRequest("Invalid queue name");
       }
-      if ((allowedQueues && !allowedQueues.includes(queueName)) || !registry.has(queueName)) {
-        throw Boom.notFound('Queue not found');
+      if (
+        (allowedQueues && !allowedQueues.includes(queueName)) ||
+        !registry.has(queueName)
+      ) {
+        throw Boom.notFound("Queue not found");
       }
     }
   }
@@ -311,21 +450,33 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   ): Promise<void> {
     const client = await getFlowClient(registry);
     const prefix = registry.getPrefix();
-    await client.hset(flowMetaKey(flowId, prefix), { createdAt: Date.now().toString(), kind });
-    await client.del([flowJobsKey(flowId, prefix), flowRootsKey(flowId, prefix)]);
+    await client.hset(flowMetaKey(flowId, prefix), {
+      createdAt: Date.now().toString(),
+      kind,
+    });
+    await client.del([
+      flowJobsKey(flowId, prefix),
+      flowRootsKey(flowId, prefix),
+    ]);
 
     if (jobs.length > 0) {
       await client.sadd(
         flowJobsKey(flowId, prefix),
         jobs
           .slice()
-          .sort((a, b) => a.queueName.localeCompare(b.queueName) || a.jobId.localeCompare(b.jobId))
+          .sort(
+            (a, b) =>
+              a.queueName.localeCompare(b.queueName) ||
+              a.jobId.localeCompare(b.jobId),
+          )
           .map(encodeFlowJobRef),
       );
-      for (const ref of jobs) {
-        const { queue } = registry.get(ref.queueName);
-        await client.hset((queue as any).keys.job(ref.jobId), { flowId });
-      }
+      await Promise.all(
+        jobs.map(async (ref) => {
+          const { queue } = registry.get(ref.queueName);
+          await client.hset(asFlowQueue(queue).keys.job(ref.jobId), { flowId });
+        }),
+      );
     }
 
     if (roots.length > 0) {
@@ -333,7 +484,11 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
         flowRootsKey(flowId, prefix),
         roots
           .slice()
-          .sort((a, b) => a.queueName.localeCompare(b.queueName) || a.jobId.localeCompare(b.jobId))
+          .sort(
+            (a, b) =>
+              a.queueName.localeCompare(b.queueName) ||
+              a.jobId.localeCompare(b.jobId),
+          )
           .map(encodeFlowJobRef),
       );
     }
@@ -342,54 +497,87 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   async function loadFlowRecord(
     registry: QueueRegistry,
     flowId: string,
-  ): Promise<{ createdAt: number; kind: FlowKind; jobs: FlowJobRef[]; roots: FlowJobRef[] } | null> {
+  ): Promise<{
+    createdAt: number;
+    kind: FlowKind;
+    jobs: FlowJobRef[];
+    roots: FlowJobRef[];
+  } | null> {
     const client = await getFlowClient(registry);
     const prefix = registry.getPrefix();
-    const meta = hashEntriesToRecord(await client.hgetall(flowMetaKey(flowId, prefix)));
+    const meta = hashEntriesToRecord(
+      await client.hgetall(flowMetaKey(flowId, prefix)),
+    );
     if (!meta?.kind) return null;
 
-    const jobs = Array.from((await client.smembers(flowJobsKey(flowId, prefix))) ?? [])
+    const jobs = Array.from(
+      (await client.smembers(flowJobsKey(flowId, prefix))) ?? [],
+    )
       .map((entry) => decodeFlowJobRef(String(entry)))
       .filter((entry): entry is FlowJobRef => entry !== null);
-    const roots = Array.from((await client.smembers(flowRootsKey(flowId, prefix))) ?? [])
+    const roots = Array.from(
+      (await client.smembers(flowRootsKey(flowId, prefix))) ?? [],
+    )
       .map((entry) => decodeFlowJobRef(String(entry)))
       .filter((entry): entry is FlowJobRef => entry !== null);
 
     return {
-      createdAt: Number(meta.createdAt || '0'),
-      kind: meta.kind === 'dag' ? 'dag' : 'tree',
+      createdAt: Number(meta.createdAt || "0"),
+      kind: meta.kind === "dag" ? "dag" : "tree",
       jobs,
       roots,
     };
   }
 
-  async function deleteFlowRecord(registry: QueueRegistry, flowId: string): Promise<void> {
+  async function deleteFlowRecord(
+    registry: QueueRegistry,
+    flowId: string,
+  ): Promise<void> {
     const client = await getFlowClient(registry);
     const prefix = registry.getPrefix();
-    await client.del([flowMetaKey(flowId, prefix), flowJobsKey(flowId, prefix), flowRootsKey(flowId, prefix)]);
+    await client.del([
+      flowMetaKey(flowId, prefix),
+      flowJobsKey(flowId, prefix),
+      flowRootsKey(flowId, prefix),
+    ]);
   }
 
   async function buildFlowSnapshot(registry: QueueRegistry, flowId: string) {
     const record = await loadFlowRecord(registry, flowId);
     if (!record) return null;
-    assertAllowedFlowQueues(registry, record.jobs.map((job) => job.queueName));
+    assertAllowedFlowQueues(
+      registry,
+      record.jobs.map((job) => job.queueName),
+    );
 
     const nodes: FlowNodeSummary[] = [];
     const counts: Record<string, number> = Object.create(null);
-    for (const ref of record.jobs) {
-      const { queue } = registry.get(ref.queueName);
-      const job = await queue.getJob(ref.jobId);
-      if (!job) continue;
-      const state = await (job as any).getState();
-      counts[state] = (counts[state] || 0) + 1;
-      nodes.push({
-        ...serializeJob(job),
-        flowId,
-        parentIds: (job as any).parentIds,
-        parentQueues: (job as any).parentQueues,
-        queueName: ref.queueName,
-        state,
-      });
+    const nodeResults = await Promise.all(
+      record.jobs.map(async (ref) => {
+        const { queue } = registry.get(ref.queueName);
+        const job = await queue.getJob(ref.jobId);
+        if (!job) return null;
+
+        const flowJob = asFlowJob(job);
+        const state = await flowJob.getState();
+        return {
+          node: {
+            ...serializeJob(job),
+            flowId,
+            parentIds: flowJob.parentIds,
+            parentQueues: flowJob.parentQueues,
+            queueName: ref.queueName,
+            state,
+          },
+          state,
+        };
+      }),
+    );
+
+    for (const result of nodeResults) {
+      if (!result) continue;
+      counts[result.state] = (counts[result.state] || 0) + 1;
+      nodes.push(result.node);
     }
 
     let usage: unknown = null;
@@ -397,13 +585,14 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
     if (record.roots.length === 1) {
       const root = record.roots[0];
       const { queue } = registry.get(root.queueName);
+      const flowQueue = asFlowQueue(queue);
       try {
-        usage = await (queue as any).getFlowUsage(root.jobId);
+        usage = await flowQueue.getFlowUsage(root.jobId);
       } catch {
         usage = null;
       }
       try {
-        budget = await (queue as any).getFlowBudget(root.jobId);
+        budget = await flowQueue.getFlowBudget(root.jobId);
       } catch {
         budget = null;
       }
@@ -415,14 +604,28 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
       createdAt: record.createdAt,
       flowId,
       kind: record.kind,
-      nodes: nodes.sort((a, b) => a.timestamp - b.timestamp || a.queueName.localeCompare(b.queueName) || a.id.localeCompare(b.id)),
-      roots: record.roots.slice().sort((a, b) => a.queueName.localeCompare(b.queueName) || a.jobId.localeCompare(b.jobId)),
+      nodes: nodes.sort(
+        (a, b) =>
+          a.timestamp - b.timestamp ||
+          a.queueName.localeCompare(b.queueName) ||
+          a.id.localeCompare(b.id),
+      ),
+      roots: record.roots
+        .slice()
+        .sort(
+          (a, b) =>
+            a.queueName.localeCompare(b.queueName) ||
+            a.jobId.localeCompare(b.jobId),
+        ),
       tree: buildFlowTreeNodes(flowId, record.roots, nodes),
       usage,
     };
   }
 
-  function removeBroadcastClient(shared: SharedBroadcastStream, client: BroadcastClient): void {
+  function removeBroadcastClient(
+    shared: SharedBroadcastStream,
+    client: BroadcastClient,
+  ): void {
     if (!shared.clients.delete(client)) return;
     try {
       if (!client.stream.writableEnded) {
@@ -436,17 +639,22 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
     }
   }
 
-  async function getSharedBroadcastStream(name: string, subscription: string, registry: QueueRegistry): Promise<SharedBroadcastStream> {
+  async function getSharedBroadcastStream(
+    name: string,
+    subscription: string,
+    registry: QueueRegistry,
+  ): Promise<SharedBroadcastStream> {
     const prefix = registry.getPrefix();
-    const cacheKey = `${prefix ?? ''}\u0000${name}\u0000${subscription}`;
+    const cacheKey = `${prefix ?? ""}\u0000${name}\u0000${subscription}`;
     const cached = broadcastStreams.get(cacheKey);
     if (cached) {
       await cached.ready;
       return cached;
     }
 
-    const connection = getLiveConnection(registry, 'broadcast SSE');
-    const { BroadcastWorker } = require('glide-mq') as typeof import('glide-mq');
+    const connection = getLiveConnection(registry, "broadcast SSE");
+    const { BroadcastWorker } =
+      require("glide-mq") as typeof import("glide-mq");
     const clients = new Set<BroadcastClient>();
 
     const shared: SharedBroadcastStream = {
@@ -483,7 +691,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
         });
         for (const client of Array.from(shared.clients)) {
           if (client.matcher && !client.matcher(job.name)) continue;
-          if (!writeSSEChunk(client.stream, 'message', payload, job.id)) {
+          if (!writeSSEChunk(client.stream, "message", payload, job.id)) {
             removeBroadcastClient(shared, client);
           }
         }
@@ -511,7 +719,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   }
 
   server.ext({
-    type: 'onPostStop',
+    type: "onPostStop",
     method: async () => {
       for (const shared of Array.from(broadcastStreams.values())) {
         await shared.close().catch(() => undefined);
@@ -521,8 +729,8 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   });
 
   server.route({
-    method: 'GET',
-    path: '/usage/summary',
+    method: "GET",
+    path: "/usage/summary",
     handler: async (request: Request, h: ResponseToolkit) => {
       const registry = request.glidemq;
       const query = request.query as {
@@ -537,23 +745,30 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
       if (requestedQueues) {
         for (const queueName of requestedQueues) {
           const { error } = queueNameParamSchema.validate({ name: queueName });
-          if (error) throw Boom.badRequest('Invalid queue name');
-          if (allowedQueues && !allowedQueues.includes(queueName)) throw Boom.notFound('Queue not found');
+          if (error) throw Boom.badRequest("Invalid queue name");
+          if (allowedQueues && !allowedQueues.includes(queueName))
+            throw Boom.notFound("Queue not found");
         }
       }
 
       if (query.window && query.windowMs && query.window !== query.windowMs) {
-        throw Boom.badRequest('window and windowMs must match when both are provided');
+        throw Boom.badRequest(
+          "window and windowMs must match when both are provided",
+        );
       }
 
-      const { Queue } = require('glide-mq') as typeof import('glide-mq');
+      const { Queue } = require("glide-mq") as typeof import("glide-mq");
       const summary = await (Queue as any).getUsageSummary({
-        connection: getLiveConnection(registry, 'usage summary'),
-        endTime: parseIntegerQuery(query.end, 'end', { min: 0 }),
+        connection: getLiveConnection(registry, "usage summary"),
+        endTime: parseIntegerQuery(query.end, "end", { min: 0 }),
         prefix: registry.getPrefix(),
         queues: requestedQueues ?? allowedQueues,
-        startTime: parseIntegerQuery(query.start, 'start', { min: 0 }),
-        windowMs: parseIntegerQuery(query.windowMs ?? query.window, query.windowMs ? 'windowMs' : 'window', { min: 1 }),
+        startTime: parseIntegerQuery(query.start, "start", { min: 0 }),
+        windowMs: parseIntegerQuery(
+          query.windowMs ?? query.window,
+          query.windowMs ? "windowMs" : "window",
+          { min: 1 },
+        ),
       });
 
       return h.response(summary);
@@ -562,8 +777,8 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
 
   // POST /{name}/jobs - Add a job
   server.route({
-    method: 'POST',
-    path: '/{name}/jobs',
+    method: "POST",
+    path: "/{name}/jobs",
     options: {
       validate: {
         params: queueNameParamSchema,
@@ -574,22 +789,26 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
     handler: async (request: Request, h: ResponseToolkit) => {
       const { name, registry } = requireQueue(request);
       const { queue } = registry.get(name);
-      const { name: jobName, data, opts: jobOpts } = request.payload as {
+      const {
+        name: jobName,
+        data,
+        opts: jobOpts,
+      } = request.payload as {
         name: string;
         data: unknown;
         opts: Record<string, unknown>;
       };
 
       const job = await queue.add(jobName, data, jobOpts as any);
-      if (!job) throw Boom.conflict('Job deduplicated');
+      if (!job) throw Boom.conflict("Job deduplicated");
       return h.response(serializeJob(job)).code(201);
     },
   });
 
   // POST /{name}/jobs/wait - Add a job and wait for result
   server.route({
-    method: 'POST',
-    path: '/{name}/jobs/wait',
+    method: "POST",
+    path: "/{name}/jobs/wait",
     options: {
       validate: {
         params: queueNameParamSchema,
@@ -600,22 +819,32 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
     handler: async (request: Request, h: ResponseToolkit) => {
       const { name, registry } = requireQueue(request);
       const { queue } = registry.get(name);
-      const { name: jobName, data, opts: jobOpts, waitTimeout } = request.payload as {
+      const {
+        name: jobName,
+        data,
+        opts: jobOpts,
+        waitTimeout,
+      } = request.payload as {
         name: string;
         data: unknown;
         opts: Record<string, unknown>;
         waitTimeout?: number;
       };
 
-      const returnvalue = await (queue as any).addAndWait(jobName, data, jobOpts as any, waitTimeout);
+      const returnvalue = await (queue as any).addAndWait(
+        jobName,
+        data,
+        jobOpts as any,
+        waitTimeout,
+      );
       return h.response({ returnvalue });
     },
   });
 
   // GET /{name}/jobs - List jobs
   server.route({
-    method: 'GET',
-    path: '/{name}/jobs',
+    method: "GET",
+    path: "/{name}/jobs",
     options: {
       validate: {
         params: queueNameParamSchema,
@@ -642,8 +871,8 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
 
   // GET /{name}/jobs/{id} - Get a single job
   server.route({
-    method: 'GET',
-    path: '/{name}/jobs/{id}',
+    method: "GET",
+    path: "/{name}/jobs/{id}",
     options: {
       validate: {
         params: jobIdParamSchema,
@@ -656,15 +885,15 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
       const { id } = request.params as { name: string; id: string };
 
       const job = await queue.getJob(id);
-      if (!job) throw Boom.notFound('Job not found');
+      if (!job) throw Boom.notFound("Job not found");
       return h.response(serializeJob(job));
     },
   });
 
   // POST /{name}/jobs/{id}/priority - Change job priority
   server.route({
-    method: 'POST',
-    path: '/{name}/jobs/{id}/priority',
+    method: "POST",
+    path: "/{name}/jobs/{id}/priority",
     options: {
       validate: {
         params: jobIdParamSchema,
@@ -678,7 +907,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
       const { id } = request.params as { name: string; id: string };
 
       const job = await queue.getJob(id);
-      if (!job) throw Boom.notFound('Job not found');
+      if (!job) throw Boom.notFound("Job not found");
 
       const { priority } = request.payload as { priority: number };
       await (job as any).changePriority(priority);
@@ -688,8 +917,8 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
 
   // POST /{name}/jobs/{id}/delay - Change job delay
   server.route({
-    method: 'POST',
-    path: '/{name}/jobs/{id}/delay',
+    method: "POST",
+    path: "/{name}/jobs/{id}/delay",
     options: {
       validate: {
         params: jobIdParamSchema,
@@ -703,7 +932,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
       const { id } = request.params as { name: string; id: string };
 
       const job = await queue.getJob(id);
-      if (!job) throw Boom.notFound('Job not found');
+      if (!job) throw Boom.notFound("Job not found");
 
       const { delay } = request.payload as { delay: number };
       await (job as any).changeDelay(delay);
@@ -713,14 +942,14 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
 
   // POST /{name}/jobs/{id}/promote - Promote a delayed job
   server.route({
-    method: 'POST',
-    path: '/{name}/jobs/{id}/promote',
+    method: "POST",
+    path: "/{name}/jobs/{id}/promote",
     options: {
       validate: {
         params: jobIdParamSchema,
         failAction,
       },
-      payload: { failAction: 'ignore' as const },
+      payload: { failAction: "ignore" as const },
     },
     handler: async (request: Request, h: ResponseToolkit) => {
       const { name, registry } = requireQueue(request);
@@ -728,7 +957,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
       const { id } = request.params as { name: string; id: string };
 
       const job = await queue.getJob(id);
-      if (!job) throw Boom.notFound('Job not found');
+      if (!job) throw Boom.notFound("Job not found");
 
       await (job as any).promote();
       return h.response({ ok: true });
@@ -737,8 +966,8 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
 
   // GET /{name}/counts - Get job counts
   server.route({
-    method: 'GET',
-    path: '/{name}/counts',
+    method: "GET",
+    path: "/{name}/counts",
     options: {
       validate: {
         params: queueNameParamSchema,
@@ -756,8 +985,8 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
 
   // GET /{name}/metrics - Get queue metrics
   server.route({
-    method: 'GET',
-    path: '/{name}/metrics',
+    method: "GET",
+    path: "/{name}/metrics",
     options: {
       validate: {
         params: queueNameParamSchema,
@@ -768,7 +997,11 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
     handler: async (request: Request, h: ResponseToolkit) => {
       const { name, registry } = requireQueue(request);
       const { queue } = registry.get(name);
-      const { type, start, end } = request.query as unknown as { type: string; start: number; end: number };
+      const { type, start, end } = request.query as unknown as {
+        type: string;
+        start: number;
+        end: number;
+      };
 
       const metrics = await (queue as any).getMetrics(type, { start, end });
       return h.response(metrics);
@@ -777,14 +1010,14 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
 
   // POST /{name}/pause - Pause queue
   server.route({
-    method: 'POST',
-    path: '/{name}/pause',
+    method: "POST",
+    path: "/{name}/pause",
     options: {
       validate: {
         params: queueNameParamSchema,
         failAction,
       },
-      payload: { failAction: 'ignore' as const },
+      payload: { failAction: "ignore" as const },
     },
     handler: async (request: Request, h: ResponseToolkit) => {
       const { name, registry } = requireQueue(request);
@@ -797,14 +1030,14 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
 
   // POST /{name}/resume - Resume queue
   server.route({
-    method: 'POST',
-    path: '/{name}/resume',
+    method: "POST",
+    path: "/{name}/resume",
     options: {
       validate: {
         params: queueNameParamSchema,
         failAction,
       },
-      payload: { failAction: 'ignore' as const },
+      payload: { failAction: "ignore" as const },
     },
     handler: async (request: Request, h: ResponseToolkit) => {
       const { name, registry } = requireQueue(request);
@@ -817,14 +1050,14 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
 
   // POST /{name}/drain - Drain queue
   server.route({
-    method: 'POST',
-    path: '/{name}/drain',
+    method: "POST",
+    path: "/{name}/drain",
     options: {
       validate: {
         params: queueNameParamSchema,
         failAction,
       },
-      payload: { failAction: 'ignore' as const },
+      payload: { failAction: "ignore" as const },
     },
     handler: async (request: Request, h: ResponseToolkit) => {
       const { name, registry } = requireQueue(request);
@@ -837,8 +1070,8 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
 
   // POST /{name}/retry - Retry failed jobs
   server.route({
-    method: 'POST',
-    path: '/{name}/retry',
+    method: "POST",
+    path: "/{name}/retry",
     options: {
       validate: {
         params: queueNameParamSchema,
@@ -851,15 +1084,17 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
       const { queue } = registry.get(name);
       const { count } = (request.payload ?? {}) as { count?: number };
 
-      const retried = await queue.retryJobs(count != null ? { count } : undefined);
+      const retried = await queue.retryJobs(
+        count != null ? { count } : undefined,
+      );
       return h.response({ retried });
     },
   });
 
   // DELETE /{name}/clean - Clean old jobs
   server.route({
-    method: 'DELETE',
-    path: '/{name}/clean',
+    method: "DELETE",
+    path: "/{name}/clean",
     options: {
       validate: {
         params: queueNameParamSchema,
@@ -870,7 +1105,11 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
     handler: async (request: Request, h: ResponseToolkit) => {
       const { name, registry } = requireQueue(request);
       const { queue } = registry.get(name);
-      const { grace, limit, type } = request.query as unknown as { grace: number; limit: number; type: string };
+      const { grace, limit, type } = request.query as unknown as {
+        grace: number;
+        limit: number;
+        type: string;
+      };
 
       const removed = await queue.clean(grace, limit, type as any);
       return h.response({ removed: removed.length });
@@ -879,8 +1118,8 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
 
   // GET /{name}/workers - List workers
   server.route({
-    method: 'GET',
-    path: '/{name}/workers',
+    method: "GET",
+    path: "/{name}/workers",
     options: {
       validate: {
         params: queueNameParamSchema,
@@ -898,8 +1137,8 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
 
   // POST /{name}/produce - Add a job via Producer (lightweight, serverless)
   server.route({
-    method: 'POST',
-    path: '/{name}/produce',
+    method: "POST",
+    path: "/{name}/produce",
     options: {
       validate: {
         params: queueNameParamSchema,
@@ -910,14 +1149,18 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
     handler: async (request: Request, h: ResponseToolkit) => {
       const { name, registry } = requireProducer(request);
       const producer = registry.getProducer(name);
-      const { name: jobName, data, opts: jobOpts } = request.payload as {
+      const {
+        name: jobName,
+        data,
+        opts: jobOpts,
+      } = request.payload as {
         name: string;
         data: unknown;
         opts: Record<string, unknown>;
       };
 
       const id = await producer.add(jobName, data, jobOpts as any);
-      if (!id) throw Boom.conflict('Job deduplicated');
+      if (!id) throw Boom.conflict("Job deduplicated");
       return h.response({ id }).code(201);
     },
   });
@@ -926,8 +1169,8 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
 
   // GET /{name}/schedulers - List all schedulers
   server.route({
-    method: 'GET',
-    path: '/{name}/schedulers',
+    method: "GET",
+    path: "/{name}/schedulers",
     options: {
       validate: {
         params: queueNameParamSchema,
@@ -945,8 +1188,8 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
 
   // GET /{name}/schedulers/{schedulerName} - Get one scheduler
   server.route({
-    method: 'GET',
-    path: '/{name}/schedulers/{schedulerName}',
+    method: "GET",
+    path: "/{name}/schedulers/{schedulerName}",
     options: {
       validate: {
         params: schedulerParamSchema,
@@ -956,18 +1199,21 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
     handler: async (request: Request, h: ResponseToolkit) => {
       const { name, registry } = requireQueue(request);
       const { queue } = registry.get(name);
-      const { schedulerName } = request.params as { name: string; schedulerName: string };
+      const { schedulerName } = request.params as {
+        name: string;
+        schedulerName: string;
+      };
 
       const scheduler = await (queue as any).getJobScheduler(schedulerName);
-      if (!scheduler) throw Boom.notFound('Scheduler not found');
+      if (!scheduler) throw Boom.notFound("Scheduler not found");
       return h.response(scheduler);
     },
   });
 
   // PUT /{name}/schedulers/{schedulerName} - Upsert a scheduler
   server.route({
-    method: 'PUT',
-    path: '/{name}/schedulers/{schedulerName}',
+    method: "PUT",
+    path: "/{name}/schedulers/{schedulerName}",
     options: {
       validate: {
         params: schedulerParamSchema,
@@ -978,21 +1224,28 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
     handler: async (request: Request, h: ResponseToolkit) => {
       const { name, registry } = requireQueue(request);
       const { queue } = registry.get(name);
-      const { schedulerName } = request.params as { name: string; schedulerName: string };
+      const { schedulerName } = request.params as {
+        name: string;
+        schedulerName: string;
+      };
       const { schedule, template } = request.payload as {
         schedule: Record<string, unknown>;
         template?: Record<string, unknown>;
       };
 
-      const job = await (queue as any).upsertJobScheduler(schedulerName, schedule, template);
+      const job = await (queue as any).upsertJobScheduler(
+        schedulerName,
+        schedule,
+        template,
+      );
       return h.response(job ? serializeJob(job) : { ok: true });
     },
   });
 
   // DELETE /{name}/schedulers/{schedulerName} - Remove a scheduler
   server.route({
-    method: 'DELETE',
-    path: '/{name}/schedulers/{schedulerName}',
+    method: "DELETE",
+    path: "/{name}/schedulers/{schedulerName}",
     options: {
       validate: {
         params: schedulerParamSchema,
@@ -1002,7 +1255,10 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
     handler: async (request: Request, h: ResponseToolkit) => {
       const { name, registry } = requireQueue(request);
       const { queue } = registry.get(name);
-      const { schedulerName } = request.params as { name: string; schedulerName: string };
+      const { schedulerName } = request.params as {
+        name: string;
+        schedulerName: string;
+      };
 
       await (queue as any).removeJobScheduler(schedulerName);
       return h.response().code(204);
@@ -1012,60 +1268,97 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   // --- AI-native endpoints ---
 
   server.route({
-    method: 'POST',
-    path: '/flows',
+    method: "POST",
+    path: "/flows",
     handler: async (request: Request, h: ResponseToolkit) => {
       const registry = request.glidemq;
-      const body = (request.payload ?? {}) as { budget?: Record<string, unknown>; dag?: DagDefinition; flow?: FlowDefinition };
+      const body = (request.payload ?? {}) as {
+        budget?: Record<string, unknown>;
+        dag?: DagDefinition;
+        flow?: FlowDefinition;
+      };
 
       if ((!!body.flow && !!body.dag) || (!body.flow && !body.dag)) {
-        return h.response({ error: 'Body must include exactly one of: flow, dag' }).code(400);
+        return h
+          .response({ error: "Body must include exactly one of: flow, dag" })
+          .code(400);
       }
 
-      const connection = getLiveConnection(registry, 'flow HTTP endpoints');
+      const connection = getLiveConnection(registry, "flow HTTP endpoints");
 
-      const { FlowProducer } = require('glide-mq') as typeof import('glide-mq');
-      const producer = new FlowProducer({ connection, prefix: registry.getPrefix() });
+      const { FlowProducer } = require("glide-mq") as typeof import("glide-mq");
+      const producer = new FlowProducer({
+        connection,
+        prefix: registry.getPrefix(),
+      }) as FlowProducerAdapter;
 
       try {
         if (body.flow) {
           const queueNames = collectFlowQueueNames(body.flow);
           assertAllowedFlowQueues(registry, queueNames);
-          const node = await (producer as any).add(body.flow as any, body.budget ? { budget: body.budget as any } : undefined);
+          const node = await producer.add(
+            body.flow,
+            body.budget ? { budget: body.budget } : undefined,
+          );
           const refs: FlowJobRef[] = [];
 
-          const collectRefs = (flowDef: FlowDefinition, jobNode: any) => {
+          const collectRefs = (
+            flowDef: FlowDefinition,
+            jobNode: FlowJobNode,
+          ) => {
             refs.push({ jobId: jobNode.job.id, queueName: flowDef.queueName });
             if (!flowDef.children || !jobNode.children) return;
-            for (let i = 0; i < flowDef.children.length && i < jobNode.children.length; i++) {
+            for (
+              let i = 0;
+              i < flowDef.children.length && i < jobNode.children.length;
+              i++
+            ) {
               collectRefs(flowDef.children[i], jobNode.children[i]);
             }
           };
 
           collectRefs(body.flow, node);
           const root = { jobId: node.job.id, queueName: body.flow.queueName };
-          await registerFlowRecord(registry, node.job.id, 'tree', [root], refs);
-          return h.response({ flowId: node.job.id, kind: 'tree', nodeCount: refs.length, root, roots: [root] }).code(201);
+          await registerFlowRecord(registry, node.job.id, "tree", [root], refs);
+          return h
+            .response({
+              flowId: node.job.id,
+              kind: "tree",
+              nodeCount: refs.length,
+              root,
+              roots: [root],
+            })
+            .code(201);
         }
 
         if (body.budget) {
-          return h.response({ error: 'budget is currently supported only for tree flows' }).code(400);
+          return h
+            .response({
+              error: "budget is currently supported only for tree flows",
+            })
+            .code(400);
         }
 
         const dag = body.dag!;
         const queueNames = collectDagQueueNames(dag);
         assertAllowedFlowQueues(registry, queueNames);
-        const jobs = await producer.addDAG(dag as any);
+        const jobs = await producer.addDAG(dag);
         const flowId = `dag-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
         const refs = dag.nodes.map((dagNode) => {
           const job = jobs.get(dagNode.name);
-          if (!job) throw Boom.badImplementation(`Missing DAG job for node ${dagNode.name}`);
+          if (!job)
+            throw Boom.badImplementation(
+              `Missing DAG job for node ${dagNode.name}`,
+            );
           return { jobId: job.id, queueName: dagNode.queueName };
         });
         const roots = dag.nodes
           .filter((dagNode) => !dagNode.deps || dagNode.deps.length === 0)
-          .map((dagNode) => ({ jobId: jobs.get(dagNode.name)!.id, queueName: dagNode.queueName }));
-        await registerFlowRecord(registry, flowId, 'dag', roots, refs);
+          .map((dagNode) => ({
+            jobId: jobs.get(dagNode.name)!.id,
+            queueName: dagNode.queueName,
+          }));
+        await registerFlowRecord(registry, flowId, "dag", roots, refs);
         return h
           .response({
             flowId,
@@ -1074,7 +1367,7 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
               name: dagNode.name,
               queueName: dagNode.queueName,
             })),
-            kind: 'dag',
+            kind: "dag",
             nodeCount: refs.length,
             roots,
           })
@@ -1086,21 +1379,27 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   });
 
   server.route({
-    method: 'GET',
-    path: '/flows/{id}',
+    method: "GET",
+    path: "/flows/{id}",
     handler: async (request: Request, h: ResponseToolkit) => {
-      const snapshot = await buildFlowSnapshot(request.glidemq, (request.params as { id: string }).id);
-      if (!snapshot) throw Boom.notFound('Flow not found');
+      const snapshot = await buildFlowSnapshot(
+        request.glidemq,
+        (request.params as { id: string }).id,
+      );
+      if (!snapshot) throw Boom.notFound("Flow not found");
       return h.response(snapshot);
     },
   });
 
   server.route({
-    method: 'GET',
-    path: '/flows/{id}/tree',
+    method: "GET",
+    path: "/flows/{id}/tree",
     handler: async (request: Request, h: ResponseToolkit) => {
-      const snapshot = await buildFlowSnapshot(request.glidemq, (request.params as { id: string }).id);
-      if (!snapshot) throw Boom.notFound('Flow not found');
+      const snapshot = await buildFlowSnapshot(
+        request.glidemq,
+        (request.params as { id: string }).id,
+      );
+      if (!snapshot) throw Boom.notFound("Flow not found");
       return h.response({
         budget: snapshot.budget,
         counts: snapshot.counts,
@@ -1115,39 +1414,61 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   });
 
   server.route({
-    method: 'DELETE',
-    path: '/flows/{id}',
+    method: "DELETE",
+    path: "/flows/{id}",
     handler: async (request: Request, h: ResponseToolkit) => {
       const registry = request.glidemq;
       const flowId = (request.params as { id: string }).id;
       const record = await loadFlowRecord(registry, flowId);
-      if (!record) throw Boom.notFound('Flow not found');
-      assertAllowedFlowQueues(registry, record.jobs.map((job) => job.queueName));
+      if (!record) throw Boom.notFound("Flow not found");
+      assertAllowedFlowQueues(
+        registry,
+        record.jobs.map((job) => job.queueName),
+      );
 
       let revoked = 0;
       let flagged = 0;
       let skipped = 0;
-      const jobs: Array<{ id: string; queueName: string; state?: string; status: string }> = [];
+      const jobs: Array<{
+        id: string;
+        queueName: string;
+        state?: string;
+        status: string;
+      }> = [];
 
-      for (const ref of record.jobs) {
-        const { queue } = registry.get(ref.queueName);
-        const job = await queue.getJob(ref.jobId);
-        if (!job) {
-          skipped += 1;
-          jobs.push({ id: ref.jobId, queueName: ref.queueName, status: 'missing' });
-          continue;
-        }
-        const state = await (job as any).getState();
-        if (state === 'completed' || state === 'failed') {
-          skipped += 1;
-          jobs.push({ id: ref.jobId, queueName: ref.queueName, state, status: 'skipped' });
-          continue;
-        }
-        const status = await (queue as any).revoke(ref.jobId);
-        if (status === 'revoked') revoked += 1;
-        else if (status === 'flagged') flagged += 1;
+      const results = await Promise.all(
+        record.jobs.map(async (ref) => {
+          const { queue } = registry.get(ref.queueName);
+          const job = await queue.getJob(ref.jobId);
+          if (!job) {
+            return {
+              id: ref.jobId,
+              queueName: ref.queueName,
+              status: "missing" as const,
+            };
+          }
+
+          const flowJob = asFlowJob(job);
+          const state = await flowJob.getState();
+          if (state === "completed" || state === "failed") {
+            return {
+              id: ref.jobId,
+              queueName: ref.queueName,
+              state,
+              status: "skipped" as const,
+            };
+          }
+
+          const status = await asFlowQueue(queue).revoke(ref.jobId);
+          return { id: ref.jobId, queueName: ref.queueName, state, status };
+        }),
+      );
+
+      for (const result of results) {
+        if (result.status === "revoked") revoked += 1;
+        else if (result.status === "flagged") flagged += 1;
         else skipped += 1;
-        jobs.push({ id: ref.jobId, queueName: ref.queueName, state, status });
+        jobs.push(result);
       }
 
       await deleteFlowRecord(registry, flowId);
@@ -1157,8 +1478,8 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
 
   // GET /{name}/flows/{id}/usage - Get aggregated token/cost usage for a flow
   server.route({
-    method: 'GET',
-    path: '/{name}/flows/{id}/usage',
+    method: "GET",
+    path: "/{name}/flows/{id}/usage",
     options: {
       validate: {
         params: flowIdParamSchema,
@@ -1171,15 +1492,15 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
       const { id } = request.params as { name: string; id: string };
 
       const usage = await (queue as any).getFlowUsage(id);
-      if (!usage) throw Boom.notFound('Flow not found');
+      if (!usage) throw Boom.notFound("Flow not found");
       return h.response(usage);
     },
   });
 
   // GET /{name}/flows/{id}/budget - Get budget status for a flow
   server.route({
-    method: 'GET',
-    path: '/{name}/flows/{id}/budget',
+    method: "GET",
+    path: "/{name}/flows/{id}/budget",
     options: {
       validate: {
         params: flowIdParamSchema,
@@ -1192,15 +1513,15 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
       const { id } = request.params as { name: string; id: string };
 
       const budget = await (queue as any).getFlowBudget(id);
-      if (!budget) throw Boom.notFound('Flow not found');
+      if (!budget) throw Boom.notFound("Flow not found");
       return h.response(budget);
     },
   });
 
   // GET /{name}/jobs/{id}/stream - SSE stream for a single job's output chunks
   server.route({
-    method: 'GET',
-    path: '/{name}/jobs/{id}/stream',
+    method: "GET",
+    path: "/{name}/jobs/{id}/stream",
     options: {
       validate: {
         params: jobStreamParamSchema,
@@ -1216,36 +1537,47 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
       const stream = new PassThrough();
       const response = h
         .response(stream)
-        .type('text/event-stream')
-        .header('Cache-Control', 'no-cache');
+        .type("text/event-stream")
+        .header("Cache-Control", "no-cache");
 
-      stream.write(':ok\n\n');
+      stream.write(":ok\n\n");
 
-      let lastId = (request.headers['last-event-id'] as string)
-        || (request.query as any).lastId as string
-        || undefined;
+      let lastId =
+        (request.headers["last-event-id"] as string) ||
+        ((request.query as any).lastId as string) ||
+        undefined;
       let running = true;
 
-      request.raw.req.on('close', () => {
+      request.raw.req.on("close", () => {
         running = false;
       });
 
       (async () => {
         try {
           while (running) {
-            const entries = await (queue as any).readStream(id, { lastId, count: 100 });
+            const entries = await (queue as any).readStream(id, {
+              lastId,
+              count: 100,
+            });
             for (const entry of entries) {
-              stream.write(`id: ${entry.id}\ndata: ${JSON.stringify(entry.fields)}\n\n`);
+              stream.write(
+                `id: ${entry.id}\ndata: ${JSON.stringify(entry.fields)}\n\n`,
+              );
               lastId = entry.id;
             }
 
             const job = await queue.getJob(id);
             if (!job) break;
             const state = await (job as any).getState();
-            if (state === 'completed' || state === 'failed') {
-              const trailing = await (queue as any).readStream(id, { lastId, count: 100 });
+            if (state === "completed" || state === "failed") {
+              const trailing = await (queue as any).readStream(id, {
+                lastId,
+                count: 100,
+              });
               for (const entry of trailing) {
-                stream.write(`id: ${entry.id}\ndata: ${JSON.stringify(entry.fields)}\n\n`);
+                stream.write(
+                  `id: ${entry.id}\ndata: ${JSON.stringify(entry.fields)}\n\n`,
+                );
               }
               break;
             }
@@ -1268,8 +1600,8 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   // GET /{name}/events - SSE stream
   const eventsHandler = createEventsHandler(server);
   server.route({
-    method: 'GET',
-    path: '/{name}/events',
+    method: "GET",
+    path: "/{name}/events",
     options: {
       validate: {
         params: queueNameParamSchema,
@@ -1281,8 +1613,8 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   });
 
   server.route({
-    method: 'POST',
-    path: '/broadcast/{name}',
+    method: "POST",
+    path: "/broadcast/{name}",
     options: {
       validate: {
         params: queueNameParamSchema,
@@ -1296,21 +1628,31 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
     },
     handler: async (request: Request, h: ResponseToolkit) => {
       const { name, registry } = requireBroadcast(request);
-      const { Broadcast } = require('glide-mq') as typeof import('glide-mq');
-      const { subject, data, opts: jobOpts } = request.payload as {
+      const { Broadcast } = require("glide-mq") as typeof import("glide-mq");
+      const {
+        subject,
+        data,
+        opts: jobOpts,
+      } = request.payload as {
         subject: string;
         data?: unknown;
         opts?: Record<string, unknown>;
       };
 
       const broadcast = new Broadcast(name, {
-        connection: getLiveConnection(registry, 'broadcast publish'),
+        connection: getLiveConnection(registry, "broadcast publish"),
         prefix: registry.getPrefix(),
       });
 
       try {
-        const id = await broadcast.publish(subject, data ?? null, jobOpts as any);
-        return h.response(id ? { id, subject } : { skipped: true }).code(id ? 201 : 200);
+        const id = await broadcast.publish(
+          subject,
+          data ?? null,
+          jobOpts as any,
+        );
+        return h
+          .response(id ? { id, subject } : { skipped: true })
+          .code(id ? 201 : 200);
       } finally {
         await broadcast.close().catch(() => undefined);
       }
@@ -1318,8 +1660,8 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
   });
 
   server.route({
-    method: 'GET',
-    path: '/broadcast/{name}/events',
+    method: "GET",
+    path: "/broadcast/{name}/events",
     options: {
       validate: {
         params: queueNameParamSchema,
@@ -1333,9 +1675,17 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
     },
     handler: async (request: Request, h: ResponseToolkit) => {
       const { name, registry } = requireBroadcast(request);
-      const { subscription, subjects } = request.query as { subscription: string; subjects?: string };
-      const { compileSubjectMatcher } = require('glide-mq') as typeof import('glide-mq');
-      const shared = await getSharedBroadcastStream(name, subscription, registry);
+      const { subscription, subjects } = request.query as {
+        subscription: string;
+        subjects?: string;
+      };
+      const { compileSubjectMatcher } =
+        require("glide-mq") as typeof import("glide-mq");
+      const shared = await getSharedBroadcastStream(
+        name,
+        subscription,
+        registry,
+      );
       const stream = new PassThrough();
       const client: BroadcastClient = {
         matcher: compileSubjectMatcher(parseCsvQuery(subjects)),
@@ -1344,23 +1694,31 @@ export function registerRoutes(server: Server, _registry: QueueRegistry, opts: G
 
       const response = h
         .response(stream)
-        .type('text/event-stream')
-        .header('Cache-Control', 'no-cache');
+        .type("text/event-stream")
+        .header("Cache-Control", "no-cache");
 
-      stream.write(':ok\n\n');
+      stream.write(":ok\n\n");
       shared.clients.add(client);
 
-      request.raw.req.on('close', () => {
+      request.raw.req.on("close", () => {
         removeBroadcastClient(shared, client);
       });
 
       (async () => {
         try {
           while (!stream.writableEnded) {
-            if (!writeSSEChunk(stream, 'heartbeat', JSON.stringify({ time: Date.now() }))) {
+            if (
+              !writeSSEChunk(
+                stream,
+                "heartbeat",
+                JSON.stringify({ time: Date.now() }),
+              )
+            ) {
               break;
             }
-            await new Promise<void>((resolve) => setTimeout(resolve, SSE_HEARTBEAT_MS));
+            await new Promise<void>((resolve) =>
+              setTimeout(resolve, SSE_HEARTBEAT_MS),
+            );
           }
         } finally {
           removeBroadcastClient(shared, client);
