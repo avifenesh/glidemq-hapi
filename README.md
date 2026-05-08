@@ -17,7 +17,7 @@ Hapi v21 plugin that turns [glide-mq](https://github.com/avifenesh/glide-mq) que
 npm install @glidemq/hapi glide-mq @hapi/hapi joi
 ```
 
-Requires **glide-mq >= 0.14.0** and **Hapi 21+**.
+Requires **glide-mq >= 0.15.2** and **Hapi 21+**.
 
 ## Quick start
 
