@@ -1,6 +1,6 @@
 {
   "name": "@glidemq/hapi",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Hapi plugin for glide-mq - queue management REST API and SSE events",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -63,7 +63,7 @@
     "@types/node": "^22.0.0",
     "eslint": "^9.0.0",
     "eslint-config-prettier": "^10.1.8",
-    "glide-mq": "latest",
+    "glide-mq": "^0.17.0",
     "prettier": "^3.4.0",
     "tsx": "^4.21.0",
     "typescript": "^5.7.0",
