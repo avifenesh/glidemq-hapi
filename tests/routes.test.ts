@@ -184,7 +184,7 @@ describe('glideMQRoutes', () => {
 
   describe('POST /{name}/jobs/{id}/priority', () => {
     it('changes job priority', async () => {
-      const { server } = await setup();
+      const { server, registry } = await setup({ emails: {} });
       const addRes = await server.inject({
         method: 'POST',
         url: '/emails/jobs',
@@ -199,6 +199,9 @@ describe('glideMQRoutes', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(JSON.parse(res.payload)).toEqual({ ok: true });
+      const job = await registry.get('emails').queue.getJob(id);
+      expect(job?.opts.priority).toBe(10);
+      expect(await job?.getState()).toBe('prioritized');
     });
 
     it('returns 404 for non-existent job', async () => {
@@ -248,7 +251,7 @@ describe('glideMQRoutes', () => {
 
   describe('POST /{name}/jobs/{id}/delay', () => {
     it('changes job delay', async () => {
-      const { server } = await setup();
+      const { server, registry } = await setup({ emails: {} });
       const addRes = await server.inject({
         method: 'POST',
         url: '/emails/jobs',
@@ -263,6 +266,9 @@ describe('glideMQRoutes', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(JSON.parse(res.payload)).toEqual({ ok: true });
+      const job = await registry.get('emails').queue.getJob(id);
+      expect(job?.opts.delay).toBe(5000);
+      expect(await job?.getState()).toBe('delayed');
     });
 
     it('returns 404 for non-existent job', async () => {
