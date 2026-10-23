@@ -64,12 +64,12 @@
     "eslint": "^9.0.0",
     "eslint-config-prettier": "^10.1.8",
     "glide-mq": "^0.17.0",
+    "joi": "^17.13.0",
     "prettier": "^3.4.0",
     "tsx": "^4.21.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.56.1",
-    "vitest": "^4.1.8",
-    "joi": "^17.13.0"
+    "vitest": "^4.1.12"
   },
   "dependencies": {
     "@hapi/boom": "^10.0.1"
