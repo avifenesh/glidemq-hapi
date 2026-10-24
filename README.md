@@ -19,6 +19,8 @@ npm install @glidemq/hapi glide-mq @hapi/hapi joi
 
 Requires **glide-mq >= 0.15.2** and **Hapi 21+**.
 
+Compatibility is tested with **glide-mq 0.20.0**. The minimum supported peer range remains unchanged. With core 0.20.0+, use `registry.get(name).queue.getRepeatableJobsBounded(maxEntries)` for caller-bounded inventory.
+
 ## Quick start
 
 ```ts

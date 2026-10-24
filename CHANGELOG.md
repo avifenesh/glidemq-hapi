@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.3
+
+- Validate against glide-mq 0.20.0 and cover bounded scheduler inventory through the real SDK, including limit rejection and existing inventory behavior.
+- Keep the supported glide-mq peer range and existing HTTP behavior unchanged.
+
 ## 0.4.2
 
 - Validate against glide-mq 0.17.0 and replace the floating development dependency with an explicit compatible range.
