@@ -82,6 +82,7 @@ interface GlideMQPluginOptions {
   producers?: Record<string, ProducerConfig>;
   prefix?: string;    // Valkey key prefix (default: "glide")
   testing?: boolean;  // In-memory mode, no Valkey needed
+  serializer?: Serializer; // Custom job data serializer (default: JSON)
   routes?: boolean | GlideMQRoutesOptions; // Mount REST + SSE endpoints
 }
 ```
